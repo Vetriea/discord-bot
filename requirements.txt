@@ -1,0 +1,6 @@
+discord.py[voice]
+davey
+openai
+python-dotenv
+aiohttp
+yt-dlp
