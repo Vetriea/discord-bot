@@ -294,9 +294,8 @@ async def start_keepalive_server():
 
 
 def run_startup_diagnostics():
-    print("
---- SYSTEM DIAGNOSTICS ---")
-    print(f"Mode              : {'Interactive PC Console' if IS_INTERACTIVE else 'Headless Cloud (Koyeb/Server)'}")
+    print("\n--- SYSTEM DIAGNOSTICS ---")
+    print(f"Mode              : {'Interactive PC Console' if IS_INTERACTIVE else 'Headless Cloud (Render/Server)'}")
     print(f"Owner ID          : {OWNER_ID if OWNER_ID else 'Not set (set OWNER_ID in env for !bot commands)'}")
     print(f"Python Executable : {sys.executable}")
     print(f"discord.py Version: {discord.__version__}")
@@ -309,26 +308,23 @@ def run_startup_diagnostics():
     print(f"Saved Personas    : {len(saved_personas)} persona(s)")
     print(f"Current AI Model  : {ai_model}")
     print(f"Current Persona   : {current_persona[:80]}{'...' if len(current_persona) > 80 else ''}")
-    print("--------------------------
-")
+    print("--------------------------\n")
 
 
 def log_and_open_dm_window(user_id: int, username: str, sender_label: str, content: str):
     log_path = os.path.abspath(f"dm_logs/dm_{user_id}.log")
     timestamp = datetime.datetime.now().strftime("%H:%M:%S")
     with open(log_path, "a", encoding="utf-8") as f:
-        f.write(f"[{timestamp}] {sender_label}: {content}
-")
+        f.write(f"[{timestamp}] {sender_label}: {content}\n")
     if IS_INTERACTIVE and user_id not in opened_dm_windows:
         opened_dm_windows.add(user_id)
         if os.name == "nt":
-            cmd = f'start "DM Log - {username} ({user_id})" powershell -NoExit -Command "Get-Content -Path '{log_path}' -Wait -Encoding UTF8"'
+            cmd = f'start "DM Log - {username} ({user_id})" powershell -NoExit -Command "Get-Content -Path \'{log_path}\' -Wait -Encoding UTF8"'
             subprocess.Popen(cmd, shell=True)
 
 
 def generate_windows_wav(text: str, output_path: str):
-    safe_text = text.replace("'", "''").replace('"', ' ').replace("
-", " ")
+    safe_text = text.replace("'", "''").replace('"', ' ').replace("\n", " ")
     ps_script = (
         "Add-Type -AssemblyName System.Speech; "
         "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
@@ -424,8 +420,7 @@ def build_scoreboard_embed(channel_id: int, title: str = "Scoreboard") -> discor
     for i, (uid, (name, score)) in enumerate(sorted_scores):
         prefix = medals[i] if i < 3 else f"`{i+1}`"
         lines.append(f"{prefix}  **{name}** — {score} pts")
-    return discord.Embed(title=title, description="
-".join(lines), color=discord.Color.gold())
+    return discord.Embed(title=title, description="\n".join(lines), color=discord.Color.gold())
 
 
 SNIPE_MAX_PER_CHANNEL = 20
@@ -525,10 +520,7 @@ async def cmd_qstats(message: discord.Message):
         return
     lines = [f"{get_topic_emoji(t)}  **{t}** — {len(topics[t])} question(s)" for t in sorted(topics.keys())]
     total = sum(len(v) for v in topics.values())
-    await message.reply(embed=discord.Embed(title="📊 Custom Question Stats", description="
-".join(lines) + f"
-
-**Total:** {total}", color=discord.Color.blurple()))
+    await message.reply(embed=discord.Embed(title="📊 Custom Question Stats", description="\n".join(lines) + f"\n\n**Total:** {total}", color=discord.Color.blurple()))
 
 
 async def cmd_qlist(message: discord.Message):
@@ -550,10 +542,7 @@ async def cmd_qlist(message: discord.Message):
         batches = []
         for i in range(0, len(questions), 10):
             chunk = questions[i:i + 10]
-            batches.append("
-
-".join(f"**{i + j + 1}.** {q}
-   → ||{a}||" for j, (q, a) in enumerate(chunk)))
+            batches.append("\n\n".join(f"**{i + j + 1}.** {q}\n   → ||{a}||" for j, (q, a) in enumerate(chunk)))
         emoji = get_topic_emoji(topic_key)
         await dm.send(embed=discord.Embed(title=f"{emoji} {topic_key} — {len(questions)} questions", description=batches[0], color=discord.Color.blurple()))
         for batch in batches[1:]:
@@ -698,10 +687,7 @@ async def run_trivia_game(channel: discord.TextChannel):
             round_emojis = [get_topic_emoji(t) for t in round_topics]
             vote_embed = discord.Embed(
                 title=f"Round {round_num}/{TRIVIA_ROUNDS} — Vote for a topic!",
-                description="
-".join(f"{round_emojis[i]}  {round_topics[i]}" for i in range(len(round_topics))) + f"
-
-Voting closes in {TRIVIA_VOTE_SECONDS}s.",
+                description="\n".join(f"{round_emojis[i]}  {round_topics[i]}" for i in range(len(round_topics))) + f"\n\nVoting closes in {TRIVIA_VOTE_SECONDS}s.",
                 color=discord.Color.blurple(),
             )
             vote_msg = await channel.send(embed=vote_embed)
@@ -735,9 +721,7 @@ Voting closes in {TRIVIA_VOTE_SECONDS}s.",
             q_idx = random.choice(avail)
             used_set.add(q_idx)
             question_text, correct_answer = combined_questions[q_idx]
-            await channel.send(embed=discord.Embed(title=f"❓ {chosen_topic} — Round {round_num}", description=f"**{question_text}**
-
-{TRIVIA_ANSWER_SECONDS}s to answer!", color=discord.Color.gold()))
+            await channel.send(embed=discord.Embed(title=f"❓ {chosen_topic} — Round {round_num}", description=f"**{question_text}**\n\n{TRIVIA_ANSWER_SECONDS}s to answer!", color=discord.Color.gold()))
             answers = {}
             end_time = asyncio.get_event_loop().time() + TRIVIA_ANSWER_SECONDS
             while True:
@@ -760,8 +744,7 @@ Voting closes in {TRIVIA_VOTE_SECONDS}s.",
                 sb[f_uid] = (f_name, sb.get(f_uid, (f_name, 0))[1] + 3)
                 for uid, name in correct_players[1:]:
                     sb[uid] = (name, sb.get(uid, (name, 0))[1] + 1)
-            desc = f"**Answer:** {correct_answer}
-" + (f"✅ Correct: {', '.join(n for _, n in correct_players)}" if correct_players else "❌ Nobody got it!")
+            desc = f"**Answer:** {correct_answer}\n" + (f"✅ Correct: {', '.join(n for _, n in correct_players)}" if correct_players else "❌ Nobody got it!")
             await channel.send(embed=discord.Embed(title=f"Round {round_num} Results", description=desc, color=discord.Color.green() if correct_players else discord.Color.red()))
             if round_num < TRIVIA_ROUNDS:
                 await channel.send(embed=build_scoreboard_embed(channel.id, f"📊 Standings after Round {round_num}"))
@@ -869,7 +852,7 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         text = "/" + text
 
     if text == "/help":
-        print("Commands: /list, /ch, /say, /reply, /react, /embed, /photo, /poll, /timer, /status, /activity, /nick, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /temperature, /maxtokens, /forget, /forgetall, /memory, /clear, /purge, /info, /ping, /uptime, /servers, /trivia, /triviastop, /customq, /snipestats, /snipewipe, /snipealert, /diag")
+        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag")
         return current_channel
 
     if text == "/list":
@@ -1147,8 +1130,7 @@ async def manual_console_sender():
         print("Error: Bot doesn't have permission to send messages in any channel!")
         return
     current_channel = next(iter(writable_channels))
-    print(f"Currently chatting in: #{current_channel.name} ({current_channel.guild.name})
-")
+    print(f"Currently chatting in: #{current_channel.name} ({current_channel.guild.name})\n")
     while not bot.is_closed():
         try:
             msg = await asyncio.to_thread(input, f"[#{current_channel.name}] > ")
@@ -1187,7 +1169,6 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Owner-only Discord remote control (!bot <command>) for Koyeb / mobile control
     if OWNER_ID and message.author.id == OWNER_ID and message.content.lower().startswith("!bot "):
         cmd_body = message.content[5:].strip()
         buf = io.StringIO()
@@ -1199,9 +1180,7 @@ async def on_message(message):
             sys.stdout = old_stdout
         output = buf.getvalue().strip()
         if output:
-            await message.reply(f"```text
-{output[:1900]}
-```")
+            await message.reply(f"```text\n{output[:1900]}\n```")
         else:
             await message.add_reaction("✅")
         return
