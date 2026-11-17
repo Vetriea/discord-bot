@@ -392,7 +392,7 @@ async def handle_api_channels(request):
     for ch in bot.get_all_channels():
         if isinstance(ch, discord.TextChannel) and ch.permissions_for(ch.guild.me).send_messages:
             channels.append({
-                "id": ch.id,
+                "id": str(ch.id),  # MUST be string — JS loses precision on 18-digit numbers
                 "name": ch.name,
                 "guild": ch.guild.name,
             })
