@@ -399,6 +399,97 @@ async def handle_api_channels(request):
     return web.json_response({"ok": True, "channels": channels})
 
 
+async def handle_api_send(request):
+    """Send a message as the bot to a channel."""
+    if not check_auth(request):
+        return web.json_response({"ok": False, "error": "Unauthorized"}, status=401)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid JSON"})
+    message = data.get("message", "").strip()
+    channel_str = data.get("channel", "").strip()
+    if not message:
+        return web.json_response({"ok": False, "error": "No message"})
+    if len(message) > 2000:
+        return web.json_response({"ok": False, "error": "Message too long (max 2000 chars)"})
+    # Resolve target channel
+    target = None
+    if channel_str:
+        if channel_str.isdigit():
+            target = bot.get_channel(int(channel_str))
+        else:
+            target = discord.utils.find(
+                lambda c: isinstance(c, discord.TextChannel) and c.name.lower() == channel_str.lstrip("#").lower(),
+                bot.get_all_channels()
+            )
+    else:
+        target = get_web_current_channel()
+    if not target or not isinstance(target, discord.TextChannel):
+        return web.json_response({"ok": False, "error": "No valid channel. Set one first or pass channel field."})
+    if not target.permissions_for(target.guild.me).send_messages:
+        return web.json_response({"ok": False, "error": f"Bot lacks Send Messages permission in #{target.name}"})
+    try:
+        await target.send(message)
+        # Save to chat memory as assistant message
+        chat_memory.setdefault(str(target.id), []).append({"role": "assistant", "content": message})
+        save_json_file(MEMORY_FILE, chat_memory)
+        return web.json_response({"ok": True, "channel": f"#{target.name}", "guild": target.guild.name})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)})
+
+
+async def handle_api_messages(request):
+    """Fetch recent messages from a channel."""
+    if not check_auth(request):
+        return web.json_response({"ok": False}, status=401)
+    channel_str = request.query.get("channel", "")
+    try:
+        limit = int(request.query.get("limit", "15"))
+    except ValueError:
+        limit = 15
+    if limit < 1 or limit > 50:
+        limit = 15
+    # Resolve channel
+    target = None
+    if channel_str:
+        if channel_str.isdigit():
+            target = bot.get_channel(int(channel_str))
+        else:
+            target = discord.utils.find(
+                lambda c: isinstance(c, discord.TextChannel) and c.name.lower() == channel_str.lstrip("#").lower(),
+                bot.get_all_channels()
+            )
+    else:
+        target = get_web_current_channel()
+    if not target or not isinstance(target, discord.TextChannel):
+        return web.json_response({"ok": False, "error": "No channel"})
+    try:
+        msgs = []
+        async for msg in target.history(limit=limit):
+            content = msg.content
+            if not content:
+                if msg.embeds:
+                    content = "[embed]"
+                elif msg.attachments:
+                    content = f"[attachment: {msg.attachments[0].filename}]"
+                else:
+                    content = "(empty)"
+            msgs.append({
+                "id": msg.id,
+                "author": msg.author.display_name,
+                "author_id": msg.author.id,
+                "content": content[:800],
+                "timestamp": msg.created_at.strftime("%H:%M:%S"),
+                "bot": msg.author.bot,
+                "avatar": str(msg.author.display_avatar.url) if msg.author.display_avatar else None,
+            })
+        msgs.reverse()  # oldest first, like a chat log
+        return web.json_response({"ok": True, "messages": msgs, "channel": f"#{target.name}", "guild": target.guild.name})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)})
+
+
 async def start_keepalive_server():
     app = web.Application()
     app.router.add_get("/", handle_root)
@@ -407,6 +498,8 @@ async def start_keepalive_server():
     app.router.add_post("/api/command", handle_api_command)
     app.router.add_get("/api/status", handle_api_status)
     app.router.add_get("/api/channels", handle_api_channels)
+    app.router.add_post("/api/send", handle_api_send)
+    app.router.add_get("/api/messages", handle_api_messages)
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.getenv("PORT", "8000"))
@@ -486,6 +579,7 @@ label{font-size:0.8rem;opacity:0.7;display:block;margin-bottom:0.25rem}
 <div class="tab" onclick="tab('trivia',this)">🎯 Trivia</div>
 <div class="tab" onclick="tab('snipe',this)">🔫 Snipe</div>
 <div class="tab" onclick="tab('ai',this)">🤖 AI</div>
+<div class="tab" onclick="tab('chat',this);loadCh();loadMsgs()">💬 Chat</div>
 <div class="tab" onclick="tab('cmd',this)">💻 Console</div>
 </div>
 <div class="main">
@@ -554,6 +648,35 @@ label{font-size:0.8rem;opacity:0.7;display:block;margin-bottom:0.25rem}
 <div class="out" id="o-ai"></div>
 </div>
 </div>
+<div id="t-chat" class="hide">
+<div class="card">
+<h2>📢 Active Channel</h2>
+<div class="info" id="cur-ch">Current: —</div>
+</div>
+<div class="card">
+<h2>📋 Switch Channel</h2>
+<div class="info">Click a channel to make it active:</div>
+<div id="ch-list" style="max-height:280px;overflow-y:auto;"></div>
+<button class="btn" style="margin-top:0.5rem" onclick="loadCh()">Refresh List</button>
+</div>
+<div class="card">
+<h2>✉️ Send Message as Bot</h2>
+<textarea id="msg" rows="3" placeholder="Type a message to send as the bot..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
+<div class="row" style="margin-top:0.5rem">
+<button class="btn btn-g" onclick="sendMsg()">Send</button>
+<button class="btn" onclick="document.getElementById('msg').value=''">Clear</button>
+</div>
+<div class="out" id="o-send"></div>
+</div>
+<div class="card">
+<h2>📜 Recent Messages</h2>
+<div class="row">
+<button class="btn" onclick="loadMsgs()">Refresh</button>
+<div class="info" id="msg-ch" style="flex:2;text-align:right"></div>
+</div>
+<div id="msgs" style="margin-top:0.5rem;"></div>
+</div>
+</div>
 <div id="t-cmd" class="hide">
 <div class="card">
 <h2>Raw Command</h2>
@@ -574,7 +697,11 @@ function tab(n,e){document.querySelectorAll('.tab').forEach(t=>t.classList.remov
 function cmd(c){api('/api/command','POST',{command:c}).then(d=>{const el=document.querySelector('.out:not(.hide)')||document.getElementById('o-quick');el.textContent=d.output||'(no output)'})}
 function raw(){const c=document.getElementById('rc').value;if(!c)return;api('/api/command','POST',{command:c}).then(d=>{document.getElementById('o-cmd').textContent=d.output||'(no output)'})}
 function setPresence(){const s=document.getElementById('st').value,t=document.getElementById('at').value,x=document.getElementById('ax').value;api('/api/command','POST',{command:'status '+s}).then(()=>{if(t!=='clear'&&x)return api('/api/command','POST',{command:t+' '+x});return{ok:true}}).then(()=>{document.getElementById('o-quick').textContent='Presence updated!';refresh()})}
-function refresh(){api('/api/status').then(d=>{if(!d.ok)return;document.getElementById('stats').innerHTML=`<div class="stat"><v>${d.uptime}</v><l>Uptime</l></div><div class="stat"><v>${d.latency}ms</v><l>Latency</l></div><div class="stat"><v>${d.servers}</v><l>Servers</l></div><div class="stat"><v>${d.members}</v><l>Members</l></div><div class="stat"><v style="font-size:0.9rem">${d.status}</v><l>Status</l></div><div class="stat"><v style="font-size:0.8rem">${d.activity}</v><l>Activity</l></div><div class="stat" style="grid-column:1/-1"><v style="font-size:0.85rem">${d.current_channel}</v><l>Active Channel</l></div>`})}
+function refresh(){api('/api/status').then(d=>{if(!d.ok)return;document.getElementById('stats').innerHTML=`<div class="stat"><v>${d.uptime}</v><l>Uptime</l></div><div class="stat"><v>${d.latency}ms</v><l>Latency</l></div><div class="stat"><v>${d.servers}</v><l>Servers</l></div><div class="stat"><v>${d.members}</v><l>Members</l></div><div class="stat"><v style="font-size:0.9rem">${d.status}</v><l>Status</l></div><div class="stat"><v style="font-size:0.8rem">${d.activity}</v><l>Activity</l></div><div class="stat" style="grid-column:1/-1"><v style="font-size:0.85rem">${d.current_channel}</v><l>Active Channel</l></div>`;document.getElementById('cur-ch').textContent='Current: '+(d.current_channel||'—')})}
+function loadCh(){api('/api/channels').then(d=>{if(!d.ok)return;const l=document.getElementById('ch-list');l.innerHTML=d.channels.map(c=>`<button class="btn" style="display:block;width:100%;text-align:left;margin-bottom:0.25rem;font-size:0.85rem" onclick="setCh('${c.id}')">#${c.name}<span style="opacity:0.5"> · ${c.guild}</span></button>`).join('')||'<div class="info">No channels found.</div>'})}
+function setCh(id){api('/api/command','POST',{command:'ch '+id}).then(d=>{document.getElementById('o-send').textContent=d.output||'Switched';refresh();loadMsgs()})}
+function sendMsg(){const m=document.getElementById('msg').value;if(!m.trim())return;api('/api/send','POST',{message:m}).then(d=>{if(d.ok){document.getElementById('o-send').textContent='✅ Sent to '+d.channel+' ('+d.guild+')';document.getElementById('msg').value='';loadMsgs()}else{document.getElementById('o-send').textContent='❌ '+d.error}})}
+function loadMsgs(){api('/api/messages?limit=20').then(d=>{if(!d.ok){document.getElementById('msgs').innerHTML='<div class="info">'+(d.error||'No channel')+'</div>';return}document.getElementById('msg-ch').textContent=d.channel+' · '+d.guild;document.getElementById('msgs').innerHTML=d.messages.map(m=>`<div style="padding:0.5rem 0;border-bottom:1px solid #30363d;"><span style="font-size:0.7rem;opacity:0.5">${m.timestamp}</span> <strong style="color:${m.bot?'#f78166':'#58a6ff'}">${m.author}:</strong> <span style="word-break:break-word">${m.content}</span></div>`).join('')||'<div class="info">No messages yet.</div>'})}
 if(tk){api('/api/status').then(d=>{if(d.ok)show()})}
 setInterval(()=>{if(tk)refresh()},30000);
 </script>
