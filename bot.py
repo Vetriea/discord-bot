@@ -451,7 +451,7 @@ def format_elapsed(delta: datetime.timedelta) -> str:
     return f"{seconds // 86400}d {(seconds % 86400) // 3600}h"
 
 
-KNOWN_DISCORD_COMMANDS = {"!addq", "!qstats", "!qlist", "!emoji", "!snipe", "!editsnipe"}
+KNOWN_DISCORD_COMMANDS = {"!addq", "!qstats", "!qlist", "!emoji", "!snipe", "!editsnipe", "!photo"}
 
 
 async def handle_discord_command(message: discord.Message) -> bool:
@@ -472,6 +472,8 @@ async def handle_discord_command(message: discord.Message) -> bool:
         await cmd_snipe(message)
     elif first_word == "!editsnipe":
         await cmd_editsnipe(message)
+    elif first_word == "!photo":
+        await cmd_photo(message)
     return True
 
 
@@ -599,6 +601,132 @@ async def cmd_editsnipe(message: discord.Message):
     embed.add_field(name="After", value=(snap["after"] or "(empty)")[:900], inline=False)
     embed.set_footer(text=f"Edited {format_elapsed(elapsed)} ago  •  Editsnipe #{index} of {len(snaps)}")
     await message.reply(embed=embed)
+
+
+async def cmd_photo(message: discord.Message):
+    """Forward an image to a channel. Usage:
+    - Attach an image + type `!photo`             -> re-posts in same channel
+    - Attach an image + type `!photo #general`    -> sends to #general
+    - Reply to a message with an image + `!photo` -> forwards that image
+    - Type `!photo <url> [#channel]`              -> sends URL image as embed
+    """
+    parts = message.content.split()
+    # Default target = current channel
+    target_channel = message.channel
+    target_arg = None
+    if len(parts) >= 2:
+        target_arg = parts[1].strip().lstrip("#")
+
+    # Resolve target channel
+    if target_arg:
+        if target_arg.isdigit():
+            found = bot.get_channel(int(target_arg))
+            if found and isinstance(found, discord.TextChannel):
+                target_channel = found
+            else:
+                await message.reply(f"Couldn't find a text channel with ID `{target_arg}`.")
+                return
+        else:
+            found = discord.utils.find(
+                lambda c: isinstance(c, discord.TextChannel) and c.name.lower() == target_arg.lower(),
+                bot.get_all_channels()
+            )
+            if found:
+                target_channel = found
+            else:
+                await message.reply(f"Couldn't find a channel named `#{target_arg}`. Try `/list` or use a channel ID.")
+                return
+
+    # Check permissions
+    if not target_channel.permissions_for(target_channel.guild.me).send_messages:
+        await message.reply(f"Bot lacks **Send Messages** permission in #{target_channel.name}.")
+        return
+    needs_files = True
+    if not target_channel.permissions_for(target_channel.guild.me).attach_files:
+        needs_files = False
+
+    # === Source 1: attachment on this message ===
+    image_attachment = None
+    if message.attachments:
+        for att in message.attachments:
+            ct = getattr(att, "content_type", None) or ""
+            if ct.startswith("image/") or any(att.filename.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
+                image_attachment = att
+                break
+        if not image_attachment:
+            # No image-typed attachment; fall back to first attachment
+            image_attachment = message.attachments[0]
+
+    # === Source 2: replied-to message with an attachment ===
+    if not image_attachment and message.reference:
+        try:
+            ref_msg = await message.channel.fetch_message(message.reference.message_id)
+            if ref_msg.attachments:
+                for att in ref_msg.attachments:
+                    ct = getattr(att, "content_type", None) or ""
+                    if ct.startswith("image/") or any(att.filename.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
+                        image_attachment = att
+                        break
+                if not image_attachment:
+                    image_attachment = ref_msg.attachments[0]
+        except Exception as e:
+            print(f"Photo: couldn't fetch replied message: {e}")
+
+    # === Source 3: URL in the message content ===
+    if not image_attachment:
+        # Look for a URL anywhere in the content (could be the 2nd arg if 1st was a channel)
+        url_match = re.search(r"https?://\S+\.(?:png|jpg|jpeg|gif|webp|bmp)(?:\?\S*)?", message.content, re.IGNORECASE)
+        if not url_match:
+            # Broader URL match (for CDN links without file extension)
+            url_match = re.search(r"https?://\S+", message.content)
+        if url_match:
+            url = url_match.group()
+            # Don't treat the channel arg as a URL
+            if target_arg and url.rstrip(",.") == target_arg:
+                url_match = None
+            if url_match:
+                if not target_channel.permissions_for(target_channel.guild.me).embed_links:
+                    await message.reply(f"Bot lacks **Embed Links** permission in #{target_channel.name} — can't post URL images.")
+                    return
+                try:
+                    embed = discord.Embed(color=discord.Color.blurple())
+                    embed.set_image(url=url)
+                    await target_channel.send(embed=embed)
+                    if target_channel.id != message.channel.id:
+                        await message.reply(f"📸 Sent image URL to #{target_channel.name}")
+                    return
+                except Exception as e:
+                    await message.reply(f"Failed to send URL image: {e}")
+                    return
+
+    if not image_attachment:
+        await message.reply(
+            "📸 **Usage:**\n"
+            "• Attach an image + type `!photo` to re-post it here\n"
+            "• Attach an image + type `!photo #channel` to send it there\n"
+            "• Reply to a message with an image + type `!photo [channel]`\n"
+            "• Type `!photo <image_url> [channel]` to send a URL image"
+        )
+        return
+
+    if not needs_files:
+        await message.reply(f"Bot lacks **Attach Files** permission in #{target_channel.name}.")
+        return
+
+    # Download the attachment and re-send it
+    try:
+        image_data = await image_attachment.read()
+        file_obj = discord.File(io.BytesIO(image_data), filename=image_attachment.filename)
+        await target_channel.send(file=file_obj)
+        if target_channel.id != message.channel.id:
+            await message.reply(f"📸 Sent `{image_attachment.filename}` to #{target_channel.name}")
+        else:
+            try:
+                await message.delete()
+            except Exception:
+                pass
+    except Exception as e:
+        await message.reply(f"Failed to send image: {e}")
 
 
 async def forward_snipe_alert(embed: discord.Embed):
