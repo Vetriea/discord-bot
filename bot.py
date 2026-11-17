@@ -282,21 +282,314 @@ opened_dm_windows = set()
 os.makedirs("dm_logs", exist_ok=True)
 
 
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "").strip()
+web_current_channel = None  # persistent channel for web dashboard commands
+
+
+def check_auth(request):
+    """Check if the request has a valid auth token."""
+    if not DASHBOARD_PASSWORD:
+        return False
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:] == DASHBOARD_PASSWORD
+    return False
+
+
+def get_web_current_channel():
+    """Get or initialize the web dashboard's current channel."""
+    global web_current_channel
+    if web_current_channel is not None:
+        return web_current_channel
+    writable = [
+        ch for ch in bot.get_all_channels()
+        if isinstance(ch, discord.TextChannel) and ch.permissions_for(ch.guild.me).send_messages
+    ]
+    if writable:
+        web_current_channel = writable[0]
+    return web_current_channel
+
+
+async def handle_root(request):
+    return web.Response(text="Bot is online 24/7!")
+
+
+async def handle_panel(request):
+    if not DASHBOARD_PASSWORD:
+        return web.Response(text="Dashboard disabled. Set DASHBOARD_PASSWORD env var to enable.", status=403)
+    return web.Response(text=DASHBOARD_HTML, content_type="text/html")
+
+
+async def handle_login(request):
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid JSON"})
+    pw = data.get("password", "")
+    if pw == DASHBOARD_PASSWORD:
+        return web.json_response({"ok": True})
+    return web.json_response({"ok": False, "error": "Wrong password"})
+
+
+async def handle_api_command(request):
+    if not check_auth(request):
+        return web.json_response({"ok": False, "error": "Unauthorized"}, status=401)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid JSON"})
+    cmd = data.get("command", "").strip()
+    if not cmd:
+        return web.json_response({"ok": False, "error": "No command provided"})
+    current_ch = get_web_current_channel()
+    if current_ch is None:
+        return web.json_response({"ok": False, "error": "No writable channel available"})
+    buf = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = buf
+    try:
+        new_ch = await execute_admin_command(cmd, current_ch)
+        if new_ch is not None:
+            global web_current_channel
+            web_current_channel = new_ch
+    except Exception as e:
+        print(f"ERROR: {e}")
+    finally:
+        sys.stdout = old_stdout
+    output = buf.getvalue().strip()
+    return web.json_response({"ok": True, "output": output[:4000]})
+
+
+async def handle_api_status(request):
+    if not check_auth(request):
+        return web.json_response({"ok": False}, status=401)
+    uptime = format_uptime((datetime.datetime.now() - START_TIME).total_seconds())
+    total_members = sum(g.member_count or 0 for g in bot.guilds)
+    status = bot_state.get("status", "online")
+    activity_data = bot_state.get("activity", {})
+    activity_str = "—"
+    if activity_data and activity_data.get("type") != "clear":
+        activity_str = f"{activity_data.get('type', '').title()} {activity_data.get('name', '')}"
+    current_ch = get_web_current_channel()
+    return web.json_response({
+        "ok": True,
+        "online": True,
+        "uptime": uptime,
+        "latency": round(bot.latency * 1000, 1),
+        "servers": len(bot.guilds),
+        "members": total_members,
+        "status": status,
+        "activity": activity_str,
+        "current_channel": f"#{current_ch.name}" if current_ch else "none",
+    })
+
+
+async def handle_api_channels(request):
+    """Return list of text channels for the dropdown."""
+    if not check_auth(request):
+        return web.json_response({"ok": False}, status=401)
+    channels = []
+    for ch in bot.get_all_channels():
+        if isinstance(ch, discord.TextChannel) and ch.permissions_for(ch.guild.me).send_messages:
+            channels.append({
+                "id": ch.id,
+                "name": ch.name,
+                "guild": ch.guild.name,
+            })
+    return web.json_response({"ok": True, "channels": channels})
+
+
 async def start_keepalive_server():
     app = web.Application()
-    app.router.add_get("/", lambda request: web.Response(text="Bot is online 24/7!"))
+    app.router.add_get("/", handle_root)
+    app.router.add_get("/panel", handle_panel)
+    app.router.add_post("/api/login", handle_login)
+    app.router.add_post("/api/command", handle_api_command)
+    app.router.add_get("/api/status", handle_api_status)
+    app.router.add_get("/api/channels", handle_api_channels)
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.getenv("PORT", "8000"))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"Keep-alive web server listening on port {port}")
+    print(f"Web server listening on port {port}")
+    if DASHBOARD_PASSWORD:
+        print(f"Dashboard: http://localhost:{port}/panel (or your Render URL)")
+    else:
+        print("Dashboard disabled (set DASHBOARD_PASSWORD env var to enable)")
+
+
+DASHBOARD_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot Control Panel</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0d1117;color:#e6edf3;min-height:100vh}
+.login{display:flex;justify-content:center;align-items:center;min-height:100vh;padding:1rem}
+.login-box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:2rem;width:100%;max-width:360px}
+.login-box h1{font-size:1.4rem;margin-bottom:1.5rem;text-align:center}
+.login-box input{width:100%;padding:0.75rem;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:1rem;margin-bottom:0.75rem}
+.login-box button{width:100%;padding:0.75rem;border-radius:8px;border:none;background:#238636;color:white;font-size:1rem;cursor:pointer}
+.login-box button:hover{background:#2ea043}
+.err{color:#f85149;font-size:0.85rem;margin-top:0.5rem;text-align:center}
+.dash{display:none}
+.hdr{background:#161b22;padding:0.75rem 1rem;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#3fb950;margin-right:0.5rem}
+.tabs{display:flex;background:#161b22;border-bottom:1px solid #30363d;overflow-x:auto;position:sticky;top:57px;z-index:9}
+.tab{padding:0.75rem 1.25rem;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;font-size:0.9rem}
+.tab.act{border-bottom:2px solid #f78166;background:#0d1117}
+.tab:hover{background:#0d1117}
+.main{padding:1rem;max-width:900px;margin:0 auto}
+.card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:1.25rem;margin-bottom:1rem}
+.card h2{font-size:1rem;margin-bottom:0.75rem;color:#f78166}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:0.75rem}
+.stat{background:#0d1117;padding:0.75rem;border-radius:8px;text-align:center}
+.stat v{font-size:1.3rem;font-weight:bold;display:block}
+.stat l{font-size:0.75rem;opacity:0.6}
+.btn{padding:0.5rem 1rem;border-radius:8px;border:1px solid #30363d;background:#21262d;color:#e6edf3;cursor:pointer;font-size:0.85rem}
+.btn:hover{background:#30363d}
+.btn-g{background:#238636;border-color:#238636;color:white}
+.btn-g:hover{background:#2ea043}
+.btn-r{background:#da3633;border-color:#da3633;color:white}
+.btn-r:hover{background:#f85149}
+input,select,textarea{padding:0.5rem;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:0.85rem;width:100%;font-family:inherit}
+textarea{resize:vertical}
+label{font-size:0.8rem;opacity:0.7;display:block;margin-bottom:0.25rem}
+.row{display:flex;gap:0.5rem;align-items:flex-end;margin-bottom:0.5rem;flex-wrap:wrap}
+.row>*{flex:1}
+.row>.btn{flex:0 0 auto}
+.out{background:#0d1117;border:1px solid #30363d;padding:0.75rem;border-radius:8px;font-family:'SF Mono',Monaco,monospace;font-size:0.8rem;white-space:pre-wrap;margin-top:0.5rem;max-height:250px;overflow-y:auto;word-break:break-word}
+.hide{display:none}
+.info{font-size:0.8rem;opacity:0.6;margin-bottom:0.5rem}
+@media(max-width:600px){.main{padding:0.75rem}.grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="login" id="login">
+<div class="login-box">
+<h1>🤖 Bot Panel</h1>
+<input type="password" id="pw" placeholder="Password" onkeydown="if(event.key==='Enter')login()">
+<button onclick="login()">Login</button>
+<div class="err" id="err"></div>
+</div>
+</div>
+<div class="dash" id="dash">
+<div class="hdr">
+<div><span class="dot"></span><strong>Bot Control Panel</strong></div>
+<button class="btn" onclick="logout()">Logout</button>
+</div>
+<div class="tabs">
+<div class="tab act" onclick="tab('overview',this)">📊 Overview</div>
+<div class="tab" onclick="tab('trivia',this)">🎯 Trivia</div>
+<div class="tab" onclick="tab('snipe',this)">🔫 Snipe</div>
+<div class="tab" onclick="tab('ai',this)">🤖 AI</div>
+<div class="tab" onclick="tab('cmd',this)">💻 Console</div>
+</div>
+<div class="main">
+<div id="t-overview">
+<div class="card"><h2>Status</h2><div class="grid" id="stats"></div></div>
+<div class="card">
+<h2>Presence</h2>
+<div class="row">
+<div><label>Status</label><select id="st"><option>online</option><option>idle</option><option>dnd</option><option>invisible</option></select></div>
+<div><label>Activity Type</label><select id="at"><option value="clear">Clear</option><option>playing</option><option>listening</option><option>watching</option></select></div>
+<div><label>Activity Text</label><input id="ax" placeholder="e.g. Minecraft"></div>
+<button class="btn btn-g" onclick="setPresence()">Apply</button>
+</div>
+</div>
+<div class="card">
+<h2>Quick Actions</h2>
+<div class="row">
+<button class="btn" onclick="cmd('diag')">Diagnostics</button>
+<button class="btn" onclick="cmd('list')">List Channels</button>
+<button class="btn" onclick="cmd('info')">Bot Info</button>
+<button class="btn btn-r" onclick="if(confirm('Restart bot?'))cmd('shutdown')">Restart</button>
+</div>
+<div class="out" id="o-quick"></div>
+</div>
+</div>
+<div id="t-trivia" class="hide">
+<div class="card">
+<h2>Start Trivia</h2>
+<div class="info">Enter a channel name/ID, or leave blank for current channel.</div>
+<div class="row"><input id="tc" placeholder="channel name or ID"><button class="btn btn-g" onclick="cmd('trivia '+(document.getElementById('tc').value||''))">Start</button><button class="btn btn-r" onclick="cmd('triviastop')">Stop</button></div>
+</div>
+<div class="card">
+<h2>Custom Questions</h2>
+<div class="row"><button class="btn" onclick="cmd('customq')">List All</button><button class="btn" onclick="cmd('qstats')">Stats</button></div>
+<div class="out" id="o-trivia"></div>
+</div>
+<div class="card">
+<h2>Add Question</h2>
+<div class="info">Format: Topic | Question | Answer</div>
+<div class="row"><input id="aq" placeholder="Cruel King | What castle does he live in? | Blackrock Castle"><button class="btn btn-g" onclick="cmd('say customq_add_helper')">Add via Discord</button></div>
+<div class="info">Note: Use <code>!addq Topic | Question | Answer</code> in Discord chat to add questions.</div>
+</div>
+</div>
+<div id="t-snipe" class="hide">
+<div class="card">
+<h2>Snipe Alert Config</h2>
+<div class="info">Forward all deleted messages to a channel.</div>
+<div class="row"><input id="sc" placeholder="channel name or ID"><button class="btn btn-g" onclick="cmd('snipealert '+(document.getElementById('sc').value||''))">Set</button><button class="btn btn-r" onclick="cmd('snipealert clear')">Clear</button></div>
+<div class="row"><button class="btn" onclick="cmd('snipealert edits on')">Edits ON</button><button class="btn" onclick="cmd('snipealert edits off')">Edits OFF</button></div>
+</div>
+<div class="card">
+<h2>Snipe Data</h2>
+<div class="row"><button class="btn" onclick="cmd('snipestats')">Stats</button><button class="btn btn-r" onclick="if(confirm('Wipe ALL snipe data?'))cmd('snipewipe')">Wipe All</button></div>
+<div class="out" id="o-snipe"></div>
+</div>
+</div>
+<div id="t-ai" class="hide">
+<div class="card">
+<h2>Persona</h2>
+<textarea id="pt" rows="3" placeholder="Enter persona prompt..."></textarea>
+<div class="row" style="margin-top:0.5rem"><button class="btn btn-g" onclick="cmd('persona '+(document.getElementById('pt').value||''))">Set</button><button class="btn" onclick="cmd('resetpersona')">Reset</button><button class="btn" onclick="cmd('personas')">List Saved</button></div>
+</div>
+<div class="card">
+<h2>Model & Memory</h2>
+<div class="row"><button class="btn" onclick="cmd('memory')">View Memory</button><button class="btn" onclick="cmd('info')">Bot Info</button><button class="btn btn-r" onclick="if(confirm('Wipe ALL memory?'))cmd('forgetall')">Wipe Memory</button></div>
+<div class="out" id="o-ai"></div>
+</div>
+</div>
+<div id="t-cmd" class="hide">
+<div class="card">
+<h2>Raw Command</h2>
+<div class="info">Type any command as if using the console (without the / prefix).</div>
+<div class="row"><input id="rc" placeholder="e.g. status dnd" onkeydown="if(event.key==='Enter')raw()"><button class="btn btn-g" onclick="raw()">Run</button></div>
+<div class="out" id="o-cmd"></div>
+</div>
+</div>
+</div>
+</div>
+<script>
+let tk=localStorage.getItem('bp')||'';
+function api(p,m='GET',b){const o={method:m,headers:{'Authorization':'Bearer '+tk}};if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b)}return fetch(p,o).then(r=>r.json())}
+function login(){const p=document.getElementById('pw').value;fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})}).then(r=>r.json()).then(d=>{if(d.ok){tk=p;localStorage.setItem('bp',p);show()}else{document.getElementById('err').textContent='Wrong password'}})}
+function logout(){localStorage.removeItem('bp');tk='';location.reload()}
+function show(){document.getElementById('login').style.display='none';document.getElementById('dash').style.display='block';refresh()}
+function tab(n,e){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('act'));e.classList.add('act');document.querySelectorAll('[id^="t-"]').forEach(d=>d.classList.add('hide'));document.getElementById('t-'+n).classList.remove('hide')}
+function cmd(c){api('/api/command','POST',{command:c}).then(d=>{const el=document.querySelector('.out:not(.hide)')||document.getElementById('o-quick');el.textContent=d.output||'(no output)'})}
+function raw(){const c=document.getElementById('rc').value;if(!c)return;api('/api/command','POST',{command:c}).then(d=>{document.getElementById('o-cmd').textContent=d.output||'(no output)'})}
+function setPresence(){const s=document.getElementById('st').value,t=document.getElementById('at').value,x=document.getElementById('ax').value;api('/api/command','POST',{command:'status '+s}).then(()=>{if(t!=='clear'&&x)return api('/api/command','POST',{command:t+' '+x});return{ok:true}}).then(()=>{document.getElementById('o-quick').textContent='Presence updated!';refresh()})}
+function refresh(){api('/api/status').then(d=>{if(!d.ok)return;document.getElementById('stats').innerHTML=`<div class="stat"><v>${d.uptime}</v><l>Uptime</l></div><div class="stat"><v>${d.latency}ms</v><l>Latency</l></div><div class="stat"><v>${d.servers}</v><l>Servers</l></div><div class="stat"><v>${d.members}</v><l>Members</l></div><div class="stat"><v style="font-size:0.9rem">${d.status}</v><l>Status</l></div><div class="stat"><v style="font-size:0.8rem">${d.activity}</v><l>Activity</l></div><div class="stat" style="grid-column:1/-1"><v style="font-size:0.85rem">${d.current_channel}</v><l>Active Channel</l></div>`})}
+if(tk){api('/api/status').then(d=>{if(d.ok)show()})}
+setInterval(()=>{if(tk)refresh()},30000);
+</script>
+</body>
+</html>"""
+
+
+
 
 
 def run_startup_diagnostics():
     print("\n--- SYSTEM DIAGNOSTICS ---")
     print(f"Mode              : {'Interactive PC Console' if IS_INTERACTIVE else 'Headless Cloud (Render/Server)'}")
     print(f"Owner ID          : {OWNER_ID if OWNER_ID else 'Not set (set OWNER_ID in env for !bot commands)'}")
+    print(f"Dashboard         : {'ENABLED — visit /panel' if DASHBOARD_PASSWORD else 'DISABLED (set DASHBOARD_PASSWORD env var)'}")
     print(f"Python Executable : {sys.executable}")
     print(f"discord.py Version: {discord.__version__}")
     print(f"DAVE Encryption   : {'OK (v' + davey.__version__ + ')' if HAS_DAVEY else 'MISSING! Run: pip install davey'}")
@@ -1316,6 +1609,12 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         run_startup_diagnostics()
         return current_channel
 
+    if text == "/shutdown" or text == "/restart":
+        print("Shutting down gracefully... Bot will go offline.")
+        # Schedule the shutdown on the event loop so this function can return first
+        asyncio.create_task(bot.close())
+        return current_channel
+
     print(f"Unknown command: {text}")
     return current_channel
 
@@ -1386,10 +1685,9 @@ async def on_ready():
     run_startup_diagnostics()
     print(f"Logged in as {bot.user}")
     await restore_bot_state()
+    bot.loop.create_task(start_keepalive_server())
     if IS_INTERACTIVE:
         bot.loop.create_task(manual_console_sender())
-    else:
-        bot.loop.create_task(start_keepalive_server())
 
 
 @bot.event
