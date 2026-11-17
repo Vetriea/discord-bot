@@ -451,30 +451,130 @@ def format_elapsed(delta: datetime.timedelta) -> str:
     return f"{seconds // 86400}d {(seconds % 86400) // 3600}h"
 
 
-KNOWN_DISCORD_COMMANDS = {"!addq", "!qstats", "!qlist", "!emoji", "!snipe", "!editsnipe", "!photo"}
+KNOWN_DISCORD_COMMANDS = {"!addq", "!qstats", "!qlist", "!emoji", "!snipe", "!editsnipe", "!photo", "!help"}
+
+# Admin commands that the owner can invoke directly via "!<command>" (no "!bot" wrapper needed).
+# These map to the same handlers as the console /commands.
+ADMIN_DISCORD_COMMANDS = {
+    "trivia", "triviastop", "status", "activity", "persona", "resetpersona",
+    "savepersona", "loadpersona", "personas", "model", "forget", "forgetall",
+    "clear", "snipealert", "snipestats", "snipewipe", "customq", "diag",
+    "list", "ch", "say", "vc", "tts", "pitch", "play", "stop", "leave",
+    "dm", "shutdown", "restart", "pause", "resume", "nick", "avatar",
+    "temperature", "maxtokens", "info", "ping", "uptime", "servers",
+    "members", "whois", "channelinfo", "serverinfo", "memory", "export",
+    "purge", "say", "reply", "react", "embed", "spam", "poll", "timer",
+    "reload",
+}
+
+
+async def run_admin_from_discord(cmd_body: str, message: discord.Message):
+    """Run an admin command from Discord, capture stdout, and reply with it."""
+    buf = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = buf
+    try:
+        await execute_admin_command(cmd_body, message.channel)
+    except Exception as e:
+        print(f"ERROR: {e}")
+    finally:
+        sys.stdout = old_stdout
+    output = buf.getvalue().strip()
+    if output:
+        # Split into chunks of 1900 chars (code block wrapper takes some)
+        for i in range(0, len(output), 1900):
+            await message.reply(f"```text\n{output[i:i+1900]}\n```")
+    else:
+        await message.add_reaction("✅")
+
+
+async def cmd_help_discord(message: discord.Message):
+    """Show all available Discord commands."""
+    is_owner = OWNER_ID and message.author.id == OWNER_ID
+    lines = ["📖 **Public commands** (anyone can use):"]
+    lines.append("  `!addq Topic | Question | Answer` — add a trivia question")
+    lines.append("  `!qstats` — custom question counts")
+    lines.append("  `!qlist Topic` — DM you questions in a topic")
+    lines.append("  `!emoji Topic 👑` — set a topic emoji")
+    lines.append("  `!snipe [N]` — show the Nth recent deleted message")
+    lines.append("  `!editsnipe [N]` — show the Nth recent edited message")
+    lines.append("  `!photo [#channel]` — forward an attached/replied image")
+    lines.append("  `!help` — this message")
+    if is_owner:
+        lines.append("")
+        lines.append("🔐 **Owner commands** (you can use these):")
+        lines.append("  `!trivia [channel]` — start trivia  •  `!triviastop` — abort")
+        lines.append("  `!status <online|idle|dnd|invisible>`  •  `!activity playing <text>`")
+        lines.append("  `!persona <prompt>`  •  `!resetpersona`  •  `!savepersona <name>`  •  `!loadpersona <name>`")
+        lines.append("  `!snipealert <channel|here|clear>`  •  `!snipealert edits on|off`")
+        lines.append("  `!snipestats`  •  `!snipewipe`  •  `!customq`")
+        lines.append("  `!clear`  •  `!purge <count>`  •  `!forget`  •  `!forgetall`")
+        lines.append("  `!list`  •  `!diag`  •  `!info`  •  `!ping`  •  `!uptime`")
+        lines.append("  `!say <#channel> <msg>`  •  `!dm <uid> <msg>`")
+        lines.append("  `!model <name>`  •  `!vc <name>`  •  `!play <query>`  •  `!stop`  •  `!leave`")
+        lines.append("  *(also: `!bot /<command>` still works as a fallback)*")
+    else:
+        lines.append("")
+        lines.append("🔐 Admin commands are owner-only. Set `OWNER_ID` to enable them.")
+    embed = discord.Embed(
+        title="Commands",
+        description="\n".join(lines),
+        color=discord.Color.blurple(),
+    )
+    await message.reply(embed=embed)
 
 
 async def handle_discord_command(message: discord.Message) -> bool:
-    if not message.content:
+    """Check for Discord-side commands (! prefix). Returns True if handled."""
+    if not message.content or not message.content.startswith("!"):
         return False
-    first_word = message.content.split()[0].lower()
-    if first_word not in KNOWN_DISCORD_COMMANDS:
-        return False
-    if first_word == "!addq":
-        await cmd_addq(message)
-    elif first_word == "!qstats":
-        await cmd_qstats(message)
-    elif first_word == "!qlist":
-        await cmd_qlist(message)
-    elif first_word == "!emoji":
-        await cmd_emoji(message)
-    elif first_word == "!snipe":
-        await cmd_snipe(message)
-    elif first_word == "!editsnipe":
-        await cmd_editsnipe(message)
-    elif first_word == "!photo":
-        await cmd_photo(message)
-    return True
+    parts = message.content.split()
+    first_word = parts[0].lower() if parts else ""
+
+    # === Public commands (anyone can use) ===
+    if first_word in KNOWN_DISCORD_COMMANDS:
+        if first_word == "!addq":
+            await cmd_addq(message)
+        elif first_word == "!qstats":
+            await cmd_qstats(message)
+        elif first_word == "!qlist":
+            await cmd_qlist(message)
+        elif first_word == "!emoji":
+            await cmd_emoji(message)
+        elif first_word == "!snipe":
+            await cmd_snipe(message)
+        elif first_word == "!editsnipe":
+            await cmd_editsnipe(message)
+        elif first_word == "!photo":
+            await cmd_photo(message)
+        elif first_word == "!help":
+            await cmd_help_discord(message)
+        return True
+
+    # === Legacy "!bot <command>" wrapper (owner only) ===
+    if first_word == "!bot":
+        if not OWNER_ID or message.author.id != OWNER_ID:
+            return False  # not owner — let it fall through (won't trigger AI since no mention)
+        if len(parts) < 2:
+            await message.reply("Usage: `!bot <command>` or just `!<command>` directly (e.g. `!trivia`).")
+            return True
+        cmd_body = message.content[5:].strip()  # strip "!bot "
+        await run_admin_from_discord(cmd_body, message)
+        return True
+
+    # === Direct admin commands: "!trivia", "!status dnd", etc. (owner only) ===
+    admin_cmd_name = first_word.lstrip("!").lower()
+    if admin_cmd_name in ADMIN_DISCORD_COMMANDS:
+        if not OWNER_ID:
+            return False  # OWNER_ID not configured — don't intercept
+        if message.author.id != OWNER_ID:
+            return False  # not owner — silently ignore (don't reply, don't trigger AI)
+        # Strip the leading "!" and pass to the admin dispatcher
+        cmd_body = message.content[1:].strip()  # e.g. "trivia" or "status dnd"
+        await run_admin_from_discord(cmd_body, message)
+        return True
+
+    return False
 
 
 async def cmd_addq(message: discord.Message):
@@ -1295,22 +1395,6 @@ async def on_ready():
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
-        return
-
-    if OWNER_ID and message.author.id == OWNER_ID and message.content.lower().startswith("!bot "):
-        cmd_body = message.content[5:].strip()
-        buf = io.StringIO()
-        old_stdout = sys.stdout
-        sys.stdout = buf
-        try:
-            await execute_admin_command(cmd_body, message.channel)
-        finally:
-            sys.stdout = old_stdout
-        output = buf.getvalue().strip()
-        if output:
-            await message.reply(f"```text\n{output[:1900]}\n```")
-        else:
-            await message.add_reaction("✅")
         return
 
     is_dm = isinstance(message.channel, discord.DMChannel)
