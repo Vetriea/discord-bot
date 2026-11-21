@@ -23,7 +23,19 @@ Then copy the URL and go on the URL, authorize the application and make the choi
 Then go to the Bot page.
 In Privileged Gateway Intents, check Message Content Intent, and save.
 
-## 3. Using Github
+## 3. OpenRouter
+Go to [openrouter](https://openrouter.ai)
+Sign in then create a key, make it have NO expiration and NO limit, create the key and copy it and pin it (save it somewhere safe). ***You will never see it again.***
+*(Tip: setting a credit limit on the key is optional, but it caps the damage if the key ever leaks.)*
+
+## 4. Your Discord Token
+Go back to the Bot page in the Discord Developer Portal, press Reset Token and copy the token and pin it (save it somewhere safe), and just like the openrouter key, ***You will never see it again.***
+
+## 5. Your Owner ID
+To get your Owner ID, go to your profile in Discord and then copy your user ID from there.
+*(If you don't see the copy option, turn on Developer Mode in Discord Settings → Advanced.)*
+
+## 6. Using Github
 Make a Github repository at [Github](https://github.com)
 Click **Add file → Create new file**, then create two files, requirements.txt and bot.py.
 In requirements.txt, make sure that it has this on the txt file.
@@ -38,7 +50,7 @@ yt-dlp
 In bot.py, check the file that is on my repository itself, and paste it all there.
 ***MAKE SURE TO COMMIT CHANGES!***
 
-## 4. Render
+## 7. Render
 Go to [Render](https://render.com)
 Sign up and then connect your github repository.
 Go to ENV variables and add 4 variables.
@@ -48,25 +60,11 @@ DISCORD_TOKEN
 DASHBOARD_PASSWORD (optional)
 OWNER_ID
 ```
+In OPENROUTER_API_KEY, input your OpenRouter key in the second box.
+In DISCORD_TOKEN, input your Discord token in the second box.
+In OWNER_ID, input your ID in the second box.
 
-## 5. OpenRouter
-Go to [openrouter](https://openrouter.ai)
-Sign in then create a key, make it have NO expiration and NO limit, create the key and copy it and pin it (save it somewhere safe). ***You will never see it again.***
-*(Tip: setting a credit limit on the key is optional, but it caps the damage if the key ever leaks.)*
-
-## 6. Back to Render
-in OPENROUTER_API_KEY, input your key in the second box.
-
-## 7. Back to Discord Developer Portals
-Go to Bot page, press Reset Token and copy the token and pin it (save it somewhere safe), and just like the openrouter key, ***You will never see it again.***
-Then in Render, in the DISCORD_TOKEN variable, input the token in the second box.
-
-## 8. In Discord
-To get your Owner ID, go to your profile and then copy your user ID from there.
-*(If you don't see the copy option, turn on Developer Mode in Discord Settings → Advanced.)*
-In Render, in OWNER_ID input your ID in the second box.
-
-## 9. Deploying Render
+## 8. Deploying Render
 Back in Render, deploy the project and wait till it finishes building, then in the terminal you should see something like a:
 ```
 ==> Uploading build...
@@ -87,11 +85,11 @@ Back in Render, deploy the project and wait till it finishes building, then in t
 ```
 In the primary URL, copy it.
 
-## 10. UptimeRobot
+## 9. UptimeRobot
 Go to [UptimeRobot](https://uptimerobot.com)
 Sign up, create a new monitor (type: HTTP(s)), and put the primary URL in the designated box.
 
-## Why is step 10 a thing?
+## Why is step 9 a thing?
 It's so because Render spins down after 15 minutes of inactivity, UptimeRobot fixes this by pinging the website every 5 minutes.
 
 ## The Result
