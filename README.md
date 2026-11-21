@@ -107,6 +107,16 @@ Sign up, create a new monitor (type: HTTP(s)), and put the primary URL in the de
 ## Why is step 9 a thing?
 It's so because Render spins down after 15 minutes of inactivity, UptimeRobot fixes this by pinging the website every 5 minutes.
 
+## 10. Making Another Bot
+Want a second bot? Just repeat the steps again, but with a few things separate for each bot:
+- A **new** Discord application (steps 1, 2 and 4), every bot needs its own token. **Never** run two bots on the same token.
+- A **new** Github repository with its own requirements.txt and bot.py (step 6).
+- A **new** Render Web Service for that repository, with its own start command and variables (step 7).
+- A **new** UptimeRobot monitor with the new bot's primary URL (step 9).
+
+You can reuse the **same** OpenRouter key and Owner ID for every bot, so steps 3 and 5 can be skipped.
+*(Render's free tier has a monthly hours limit that is shared between your services, so check their current limits if you plan on running more than one bot 24/7.)*
+
 ## The Result
 After doing all of this, your bot should now be running 24/7 with the commands you'll need.
 
