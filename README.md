@@ -2,9 +2,9 @@
 
 This is a project of a Discord Bot that I am doing, it is **still being updated** per when I get an idea, but it is complete.
 
-# What is this?
+## What is this?
 This is a Discord Bot relying on Render for the cloud hosting and Github for Render to notice when a change has been committed.
-# How do I use this?
+## How do I use this?
 The steps are simple,
 ## 1. The Setup
 Create your bot application in the [Discord Developer Portal](https://discord.com/developers/applications).
@@ -12,13 +12,13 @@ Name it **however** you want, add any profile picture.
 ## 2. The Configuration
 Go on the OAuth2 page in your application.
 In OAuth2 URL generator, **tick the bot box.**
-Then in bot permissions, **tick the administrator box.**
+Then in bot permissions, **tick the administrator box.** But you should be responsible on what happens with your token.
 Then copy the URL and go on the URL, authorize the application and make the choice to add it to a server that you want. *This can be repeated to add in multiple servers.*
 Then go to the Bot page.
 In Privileged Gateway Intents, check Message Content Intent, and save.
 ## 3. Using Github
 Make a Github repository at [Github](https://github.com)
-Go to File Manager then create two files, requirements.txt and bot.**py**.
+Go to File Manager then create two files, requirements.txt and bot.py.
 In requirements.txt, make sure that it has this on the txt file.
 ```
 discord.py[voice]
@@ -74,6 +74,8 @@ In the primary URL, copy it.
 ## 10. UptimeRobot
 Go to [UptimeRobot](https://uptimerobot.com)
 Sign up and then put the primary URL in the designated box.
+## Why is step 10 a thing?
+It's so because Render spins down after 15 minutes of inactivity, UptimeRobot fixes this by pinging the website every 5 minutes.
 ## The Result
 After doing all of this, your bot should now be running 24/7 with the commands you'll need.
 ## The Commands
@@ -99,7 +101,11 @@ Owner commands (you can use these):
 !say <#channel> <msg> • !dm <uid> <msg>
 !model <name> • !vc <name> • !play <query> • !stop • !leave
 (also: !bot /<command> still works as a fallback)
+(editsnipe and snipe should be used responsibly, if a user doesn't want to opt in it, you should never use it, if it's a community where they are okay with it, go.)
 ```
+## Notes
+Never EVER commit your token in a file, ALWAYS. It is no longer my problem if you use this project IMPROPERLY.
+Openrouter key is also your responsibility to use, if it's leaked, it's ggs.
 ## Goodbye?
 This marks the end of the tutorial, if anything goes wrong, you can simply go back and know what went wrong.
 **Goodbye.**
