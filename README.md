@@ -63,6 +63,11 @@ In bot.py, check the file that is on my repository itself, and paste it all ther
 ## 7. Render
 Go to [Render](https://render.com)
 Sign up and then connect your github repository.
+Make it a **Web Service**, and set the **Start Command** to:
+```
+python bot.py
+```
+(The Build Command should be `pip install -r requirements.txt`, Render usually fills this in by itself.)
 Go to ENV variables and add 4 variables.
 ```
 OPENROUTER_API_KEY
