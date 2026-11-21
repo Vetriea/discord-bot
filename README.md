@@ -10,6 +10,15 @@ This is a Discord Bot relying on Render for the cloud hosting and Github for Ren
 ## How do I use this?
 The steps are simple,
 
+## On mobile?
+You can do all of this on your phone too, everything is a website so a mobile browser is enough.
+- Turn on **Desktop site** in your browser (Chrome: the ⋮ menu, Safari: the aA button), the Discord Developer Portal and Render are buggy in the mobile layout.
+- Use the Github **website** instead of the app, the app can't really add new files. Use **Add file → Create new file**.
+- When copying bot.py, long-press, select all, copy, and scroll to make sure the whole file got selected before pasting.
+- Paste your OpenRouter key and Discord token into a notes app **right away**, you only see them once and switching tabs can reload the page.
+- Turn on Developer Mode in User Settings → Advanced in the Discord app so you can copy your user ID.
+- Copy your values first and then paste them into Render, typing a long token by hand is a bad idea.
+
 ## 1. The Setup
 Create your bot application in the [Discord Developer Portal](https://discord.com/developers/applications).
 Name it **however** you want, add any profile picture.
