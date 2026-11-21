@@ -21,7 +21,8 @@ You can do all of this on your phone too, everything is a website so a mobile br
 
 ## 1. The Setup
 Create your bot application in the [Discord Developer Portal](https://discord.com/developers/applications).
-Name it **however** you want, add any profile picture.
+Name it **however** you want.
+To add a profile picture, go to the Bot page and upload it there (the picture on the General Information page is only the app icon, it won't show as the bot's profile picture).
 
 ## 2. The Configuration
 Go on the OAuth2 page in your application.
