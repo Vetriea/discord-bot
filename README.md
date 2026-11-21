@@ -33,7 +33,74 @@ In bot.py, check the file that is on my repository itself, and paste it all ther
 ## 4. Render
 Go to [Render](https://render.com)
 Sign up and then connect your github repository.
-Go to ENV variables and add 4 variables
+Go to ENV variables and add 4 variables.
+```
 OPENROUTER_API_KEY
+DISCORD_TOKEN
+DASHBOARD_PASSWORD (optional)
+OWNER_ID
+```
+## 5. OpenRouter
+Go to [openrouter](https://openrouter.com)
+Sign in then create a key, make it have NO expiration and NO limit, create the key and copy it and pin it. ***You will never see it again.***
+## 6. Back to Render
+in OPENROUTER_API_KEY, input your key in the second box.
+## 7. Back to Discord Developer Portals
+Go to Bot page, press Reset Token and copy the token and pin it, and just like the openrouter key, ***You will never see it again.***
+Then in Render, in the DISCORD_TOKEN variable, input the token in the second box.
+## 8. In Discord
+To get your Owner ID, go to your profile and then copy your user ID from there.
+In Render, in OWNER_ID input your ID in the second box.
+## 9. Deploying Render
+Back in Render, deploy the project and wait till it finishes building, then in the terminal you should see something like a:
+```
+==> Uploading build...
+==> Uploaded in 2.5s. Compression took 1.5s
+==> Build successful 🎉
+==> Deploying...
+==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+==> Running 'python bot.py'
+[2026-11-21 14:59:36] [INFO    ] discord.client: logging in using static token
+[2026-11-21 14:59:37] [INFO    ] discord.gateway: Shard ID None has connected to Gateway (Session ID: 2a749d1867cf976a5c97cd3c6c86ffab).
+==> Your service is live 🎉
+==> 
+==> ///////////////////////////////////////////////////////////
+==> 
+==> Available at your primary URL https://discord-bot-zhl2.onrender.com
+==> 
+==> ///////////////////////////////////////////////////////////
+```
+In the primary URL, copy it.
+## 10. UptimeRobot
+Go to [UptimeRobot](https://uptimerobot.com)
+Sign up and then put the primary URL in the designated box.
+## The Result
+After doing all of this, your bot should now be running 24/7 with the commands you'll need.
+## The Commands
+```
+Public commands (anyone can use):
+!addq Topic | Question | Answer — add a trivia question
+!qstats — custom question counts
+!qlist Topic — DM you questions in a topic
+!emoji Topic 👑 — set a topic emoji
+!snipe [N] — show the Nth recent deleted message
+!editsnipe [N] — show the Nth recent edited message
+!photo [#channel] — forward an attached/replied image
+!help — this message
 
-*to be finished*
+Owner commands (you can use these):
+!trivia [channel] — start trivia • !triviastop — abort
+!status <online|idle|dnd|invisible> • !activity playing <text>
+!persona <prompt> • !resetpersona • !savepersona <name> • !loadpersona <name>
+!snipealert <channel|here|clear> • !snipealert edits on|off
+!snipestats • !snipewipe • !customq
+!clear • !purge <count> • !forget • !forgetall
+!list • !diag • !info • !ping • !uptime
+!say <#channel> <msg> • !dm <uid> <msg>
+!model <name> • !vc <name> • !play <query> • !stop • !leave
+(also: !bot /<command> still works as a fallback)
+```
+## Goodbye?
+This marks the end of the tutorial, if anything goes wrong, you can simply go back and know what went wrong.
+**Goodbye.**
+
