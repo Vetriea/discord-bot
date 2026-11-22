@@ -60,7 +60,7 @@ yt-dlp
 In bot.py, check the file that is on my repository itself, and paste it all there.
 ***MAKE SURE TO COMMIT CHANGES!***
 
-*(I know this step is the boring part, a lot of copying and pasting, but don't give up now! Once this is done, the hardest part is over and the rest is just filling in boxes. You're almost there, keep going!)*
+*(I know this step is the boring part, a lot of copying and pasting, but don't give up now! Once this is done, the hardest part is over and the rest is just filling in boxes. You're almost there, keep going! 💪)*
 
 ## 7. Render
 Go to [Render](https://render.com)
@@ -118,6 +118,21 @@ Want a second bot? Just repeat the steps again, but with a few things separate f
 
 You can reuse the **same** OpenRouter key and Owner ID for every bot, so steps 3 and 5 can be skipped.
 *(Render's free tier has a monthly hours limit that is shared between your services, so check their current limits if you plan on running more than one bot 24/7.)*
+
+## 11. Updating Your Bot
+What if I update bot.py? Don't worry, updating is way easier than the first setup.
+Check [updates.md](updates.md) on my repository to see if there is a new version and what changed.
+If there is, do this:
+1. Open `bot.py` on my repository and copy **all** of it.
+2. Go to **your** Github repository, open `bot.py`, and press the pencil icon to edit it.
+3. Select everything, delete it, and paste the new version in.
+4. Press **Commit changes**.
+
+That's it. Render notices the commit by itself and redeploys the bot, so just wait for the build to finish and your bot will come back online with the update. It will be offline for a short moment while it redeploys.
+If I changed `requirements.txt` too, do the same thing with that file.
+Your variables (token, keys, Owner ID) stay the same, you don't have to enter them again unless I say so in updates.md.
+*(If Render doesn't redeploy by itself, check that **Auto-Deploy** is on in your service settings, or press **Manual Deploy** in Render.)*
+*(On mobile? Use Desktop site mode like before.)*
 
 ## The Result
 After doing all of this, your bot should now be running 24/7 with the commands you'll need.
