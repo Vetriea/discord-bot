@@ -46,9 +46,23 @@ Added moderation commands (owner only).
 - Actions show up in the server's Audit Log with the reason you gave
 - If you gave the bot **Administrator** you don't need to change anything. If you picked permissions by hand, add **Ban Members**, **Kick Members** and **Moderate Members** (README step 2), and make sure the bot's role is above the roles of the people you moderate
 - **How to update:** replace your `bot.py` with the new one (see step 11 in the README), no new variables or `requirements.txt` changes needed
+# v1.4
+Your saved data now survives redeploys.
+
+**What happened:** On Render's free tier the bot's files are wiped on every redeploy, so `!addq` questions, saved personas, chat memory and the bot's saved state kept resetting.
+
+**What changed:**
+- The bot can now back up `memory.json`, `personas.json`, `trivia_custom.json` and `bot_state.json` to a private Discord channel, and load them back when it starts
+- It is optional and off by default, turn it on by adding the `STORAGE_CHANNEL_ID` variable (see [README](README.md), step 7)
+- Backups happen a few seconds after something changes, and once more when Render stops the bot for a redeploy
+- Each file is stored as a single message that gets updated in place, so the channel stays tidy (one message per file)
+- A local file is never overwritten by a backup, and a damaged backup is ignored instead of loaded
+- New owner command `!backup` saves everything to the storage channel right now and tells you if something went wrong
+- If you don't set `STORAGE_CHANNEL_ID`, nothing changes from before
+- **Make the storage channel private.** Chat memory is stored in it
+- **How to update:** replace your `bot.py` with the new one (see step 11 in the README), then add `STORAGE_CHANNEL_ID` in Render if you want persistence. No `requirements.txt` changes needed
 # Known Issues
 Things I know about and haven't fixed yet:
-- On Render's free tier, saved files (`!addq` questions, saved personas, chat memory) can reset whenever the bot redeploys, including when you update `bot.py`
 - `!play` and `!vc` audio need ffmpeg, which might not be installed on Render. Use `!diag` and check the `FFmpeg Binary` line to see
 - `!tts` only works when the bot is hosted on a Windows PC
 - The AI reply can freeze the bot for a moment while waiting for OpenRouter
