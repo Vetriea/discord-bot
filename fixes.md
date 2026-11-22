@@ -2,11 +2,26 @@
 # How to fix it
 Fixes for the known issues listed in [updates.md](updates.md). Some of them I have to fix in a future update of `bot.py`, so there is nothing you can do yet.
 ## Saved files resetting on Render
-There is no easy free fix, Render's free tier just doesn't keep files between deploys. For now:
-- Keep your `!addq` questions and personas written down somewhere (a notes app is fine) so you can add them again after a redeploy
-- Don't redeploy or restart more than you need to
-
-A real fix needs a Render **persistent disk** (paid) or a database, plus a change in `bot.py`. I'll look into it for a future update.
+Fixed in v1.4, but you have to turn it on. Create a **private** text channel, copy its ID, and add it in Render as the `STORAGE_CHANNEL_ID` variable (README step 7). The bot then keeps your data in that channel and loads it back after every redeploy.
+## Storage doesn't seem to work
+First type `!backup`. It tells you how many files it saved and the last error if there was one. Then check:
+- The logs should say `Storage: backing up to channel ...` on startup. If they say `STORAGE_CHANNEL_ID not set`, the variable is missing or has a typo in Render
+- If they say `could not read the backup channel`, the ID is wrong or the bot can't see that channel. Give the bot **View Channel**, **Read Message History**, **Send Messages** and **Attach Files** there
+- Use the **channel** ID, not the server ID or your user ID
+- Don't delete the bot's backup messages in the channel, they are your data. If you do, type `!backup` to save fresh copies
+- A single file bigger than 8 MB isn't backed up, which only really happens with a huge `memory.json`
+- Data is only restored for files that don't exist yet, so on your own PC (where the files already exist) your local files win
+## Warnings aren't showing up
+- Type `!warnchannel` with nothing after it. If it says **off**, set one with `!warnchannel here` in the channel you want
+- Give the bot **View Channel**, **Send Messages**, **Embed Links** and **Mention Users** in the warnings channel. If the logs say `Warning send failed`, it's almost always a permission
+- It only flags the phrase "fuck you" (also "fuck u" and stretched versions). "fuckyou" with no space and other insults aren't flagged
+- It waits 10 seconds between warnings for the same person, so a second one right after the first won't show
+- Messages from bots and DMs are ignored
+## My flagged phrase isn't being caught
+- Check it with `!flagged`. Make sure the phrase is listed and a warnings channel is set
+- Phrases only match **whole words**, so a flagged "idiot" won't catch "idiotic", and "shut up" won't catch "shutup". Add each version you want as its own phrase
+- Spelling tricks like "sh*t" or extra letters aren't caught for custom phrases, add those spellings as separate phrases
+- Use `|` to separate the phrase from the reason, for example `!addflag shut up | Told someone to shut up`. A `|` inside the phrase itself isn't supported
 ## ffmpeg missing (`!play` and `!vc` audio)
 First run `!diag` and check the `FFmpeg Binary` line. If it says **MISSING**, Render's normal Python setup doesn't have it, so you have to deploy with Docker instead:
 1. In your Github repository, create a new file called `Dockerfile` with this inside:
