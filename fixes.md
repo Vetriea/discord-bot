@@ -30,3 +30,14 @@ It only works when the bot is hosted on a Windows PC, so on Render there is no f
 Nothing to fix on your side, just don't use `!purge`, `!ping`, `!uptime`, `!info`, `!snipestats`, `!snipewipe` or `!customq` for now. I'll add them in a future update.
 ## The AI reply freezing the bot
 Nothing to fix on your side, just wait a moment for the reply. I'll fix it in a future update of `bot.py`.
+## Why is it slow?
+There isn't just one reason, a few things can make the bot slow, and most of them come from the free hosting:
+- **Render woke up.** Render spins down after 15 minutes of inactivity. UptimeRobot is supposed to keep it awake by pinging every 5 minutes, but if the monitor is paused or set up wrong, the first command after a while will be very slow while the bot starts back up. Check that your UptimeRobot monitor is **up** and uses the right primary URL.
+- **The free server is small.** Render's free tier gives the bot very little CPU and memory, so heavier things like `!play` (yt-dlp has to look up the song first) take a few seconds, and sometimes longer.
+- **The AI model is slow.** The default model is `openrouter/free`, and free models can be slow, busy or rate limited. Try a different one with `!model <name>` (pick one from [openrouter](https://openrouter.ai), paid models are usually faster).
+- **The bot waits for the AI.** Right now the bot can freeze for a moment while it waits for OpenRouter, so other commands feel slow at the same time. This is one of the known issues and I'll fix it in a future update.
+- **Rate limits.** If Discord or OpenRouter is slowing the bot down on purpose, see step 12 in the README, the only fix is to wait.
+- **Old chat memory.** The bot saves its whole memory file every time someone talks to it, so over time it gets bigger. This helps only a little, but `!forgetall` wipes it if the bot has been running for a long time.
+
+If you turned on the dashboard, `/panel` shows the bot's latency, so you can tell if it's the bot (high latency) or the AI model (normal latency but slow replies).
+*(`!ping` is in the command list but doesn't work yet, so use the dashboard for this.)*
