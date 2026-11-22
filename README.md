@@ -142,6 +142,17 @@ Your variables (token, keys, Owner ID) stay the same, you don't have to enter th
 *(If Render doesn't redeploy by itself, check that **Auto-Deploy** is on in your service settings, or press **Manual Deploy** in Render.)*
 *(On mobile? Use Desktop site mode like before.)*
 
+## 12. What If My Bot Gets Rate Limited?
+Sometimes Discord (or OpenRouter) will tell your bot to slow down because it's doing too much too fast. You might see the bot reply late, not reply at all, or see `429` or `rate limited` in your Render logs.
+**The honest answer is that you can't really do anything about it.** Rate limits are set by Discord and OpenRouter, not by me or by the bot, so the only real fix is to **wait**. Most of the time it clears up by itself in a few seconds or minutes, and the bot keeps working like normal afterwards.
+Here is what you can do to make it happen less:
+- Don't spam commands, especially `!purge`, `!say`, `!dm` and `!play`
+- Don't redeploy or restart the bot over and over, logging in too many times in a row can get you limited
+- If the AI replies stop working, your OpenRouter key might have hit its limit, so check your usage on [openrouter](https://openrouter.ai)
+
+If it lasts a long time, check the logs in Render to see what it says, then wait a bit and try again.
+*(Sometimes it's the hosting itself being limited, since Render shares servers with other people. Restarting later can sometimes help, but it isn't guaranteed.)*
+
 ## The Result
 After doing all of this, your bot should now be running 24/7 with the commands you'll need.
 
