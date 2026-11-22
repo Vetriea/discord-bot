@@ -28,7 +28,7 @@ To add a profile picture, go to the Bot page and upload it there (the picture on
 Go on the OAuth2 page in your application.
 In OAuth2 URL generator, **tick the bot box.**
 Then in bot permissions, **tick the administrator box.** But you should be responsible on what happens with your token.
-*(Tip: if you'd rather not give full admin, the permissions the bot actually needs are Send Messages, Read Message History, Manage Messages (for `!purge`), Connect and Speak (for voice).)*
+*(Tip: if you'd rather not give full admin, the permissions the bot actually needs are Send Messages, Read Message History, Manage Messages (for `!purge`), Connect and Speak (for voice), and Ban Members, Kick Members and Moderate Members (for `!ban`, `!unban`, `!kick`, `!timeout` and `!untimeout`).)*
 Then copy the URL and go on the URL, authorize the application and make the choice to add it to a server that you want. *This can be repeated to add in multiple servers.*
 Then go to the Bot page.
 In Privileged Gateway Intents, check Message Content Intent, and save.
@@ -60,7 +60,7 @@ yt-dlp
 In bot.py, check the file that is on my repository itself, and paste it all there.
 ***MAKE SURE TO COMMIT CHANGES!***
 
-*(I know this step is the boring part, a lot of copying and pasting, but don't give up now! Once this is done, the hardest part is over and the rest is just filling in boxes. You're almost there, keep going!)*
+*(I know this step is the boring part, a lot of copying and pasting, but don't give up now! Once this is done, the hardest part is over and the rest is just filling in boxes. You're almost there, keep going! 💪)*
 
 ## 7. Render
 Go to [Render](https://render.com)
@@ -70,7 +70,7 @@ Make it a **Web Service**, and set the **Start Command** to:
 python bot.py
 ```
 (The Build Command should be `pip install -r requirements.txt`, Render usually fills this in by itself.)
-Go to ENV variables and add 4 variables.
+Go to ENV variables and add these variables (plus the optional `STORAGE_CHANNEL_ID` explained below).
 ```
 OPENROUTER_API_KEY
 DISCORD_TOKEN
@@ -80,6 +80,16 @@ OWNER_ID
 In OPENROUTER_API_KEY, input your OpenRouter key in the second box.
 In DISCORD_TOKEN, input your Discord token in the second box.
 In OWNER_ID, input your ID in the second box.
+
+### Keeping your saved data (recommended)
+On Render's free tier the bot's files get wiped on every redeploy, so your `!addq` questions, saved personas and chat memory would disappear. To stop that, the bot can back them up to a private Discord channel and load them back when it starts.
+1. In your Discord server, create a new text channel (for example `bot-storage`) and make it **private**, so only you and the bot can see it. Your chat memory is saved there, so never let anyone else in.
+2. Make sure the bot can see the channel and has **View Channel**, **Send Messages** and **Attach Files** in it.
+3. Right click the channel, press **Copy Channel ID** (turn on Developer Mode like in step 5 if you don't see it).
+4. In Render, add one more ENV variable called `STORAGE_CHANNEL_ID` and paste the ID.
+5. Redeploy. In the logs you should see `Storage: backing up to channel ...`. Type `!backup` to force a save and check the channel, you should see one file per data type.
+
+Skip it and everything still works, your data just resets on redeploy like before.
 
 ## 8. Deploying Render
 Back in Render, deploy the project and wait till it finishes building, then in the terminal you should see something like a:
