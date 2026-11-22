@@ -91,6 +91,17 @@ On Render's free tier the bot's files get wiped on every redeploy, so your `!add
 
 Skip it and everything still works, your data just resets on redeploy like before.
 
+### Warnings (optional)
+The bot can flag people who say "fuck you" and ping them in a warnings channel with the reason, the channel it happened in, a link to the message, and what they said.
+1. Create a text channel for warnings (mods only, or public if you want it to be seen)
+2. Make sure the bot can **View Channel**, **Send Messages**, **Embed Links** and **Mention Users** there
+3. In that channel type `!warnchannel here` (or `!warnchannel <channel id>` from anywhere)
+4. Turn it off any time with `!warnchannel clear`
+
+To flag more phrases, use `!addflag <phrase> | [reason]`, for example `!addflag shut up | Told someone to shut up`. If you leave out the reason, it says "Said a flagged phrase". `!flagged` lists everything, and `!removeflag <phrase>` stops flagging one. Matching ignores capitals and extra spaces and only matches whole words.
+
+It does not delete the message or punish anyone, it only posts the warning. The setting is saved with your other data, so it survives redeploys if you set up storage above.
+
 ## 8. Deploying Render
 Back in Render, deploy the project and wait till it finishes building, then in the terminal you should see something like a:
 ```
@@ -184,6 +195,19 @@ Owner commands (you can use these):
 !persona <prompt> • !resetpersona • !savepersona <name> • !loadpersona <name>
 !snipealert <channel|here|clear> • !snipealert edits on|off
 !snipestats • !snipewipe • !customq
+!warnchannel <here|#channel|id|clear> — where warnings get posted
+!addflag <phrase> | [reason] • !removeflag <phrase> • !flagged — manage flagged phrases
+!ban <@user|id> [reason] • !unban <id> • !kick <@user|id> [reason]
+!timeout <@user|id> <10m|2h|1d> [reason] • !untimeout <@user|id>
+!backup — save your data to the storage channel now
+!pause • !resume — turn the bot's AI replies off/on
+!reload — re-read the data files from disk
+!export [memory|personas|questions|state|all] — DMs you the data files
+!temperature <0-2> • !maxtokens <n|off> • !memory [all]
+!nick <name|reset> • !avatar <image url>
+!servers • !serverinfo [id] • !channelinfo [#channel] • !members • !whois <@user|id>
+!reply <message id> <text> • !react <message id> <emoji>
+!embed <title> | <text> | [#color] • !poll <question> | <opt> | <opt> • !timer <10m> [message] • !spam <1-10> <text>
 !clear • !purge <count> • !forget • !forgetall
 !list • !diag • !info • !ping • !uptime
 !say <#channel> <msg> • !dm <uid> <msg>
