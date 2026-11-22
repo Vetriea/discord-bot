@@ -22,6 +22,18 @@ First type `!backup`. It tells you how many files it saved and the last error if
 - Phrases only match **whole words**, so a flagged "idiot" won't catch "idiotic", and "shut up" won't catch "shutup". Add each version you want as its own phrase
 - Spelling tricks like "sh*t" or extra letters aren't caught for custom phrases, add those spellings as separate phrases
 - Use `|` to separate the phrase from the reason, for example `!addflag shut up | Told someone to shut up`. A `|` inside the phrase itself isn't supported
+## `!avatar` or `!nick` fails
+- `!avatar` needs a **direct** link to the image file (it should end in .png, .jpg, .gif or .webp, and open as just the picture). Links to web pages won't work, and it has to be under 8 MB
+- Discord only lets a bot change its avatar a couple of times per hour. If it says it was rejected, wait and try again
+- `!nick` needs the **Change Nickname** permission for the bot, and nicknames are at most 32 characters
+## `!export` says it couldn't DM me
+Turn on **Allow direct messages from server members** in the server's privacy settings (or share any server with the bot), then try again. Exports always go to your DMs on purpose, never to a channel.
+## `!reply` or `!react` can't find the message
+They look in the channel you type them in. Either use them in the same channel as the message, or give the full message link (right click the message, Copy Message Link). For custom emojis, the bot has to be in the server that owns the emoji.
+## `!whois` shows little about someone
+The bot can't see members it hasn't been given access to without the privileged Members intent, so `!whois` looks people up by ID or mention. Use it in the server where you want to see their nickname, roles and join date. Outside it, you only get their account info.
+## `!pause` doesn't stop everything
+It only stops the AI replies (mentions and DMs). Public commands like `!snipe` and `!addq`, trivia, warnings and all owner commands keep working on purpose.
 ## ffmpeg missing (`!play` and `!vc` audio)
 First run `!diag` and check the `FFmpeg Binary` line. If it says **MISSING**, Render's normal Python setup doesn't have it, so you have to deploy with Docker instead:
 1. In your Github repository, create a new file called `Dockerfile` with this inside:
