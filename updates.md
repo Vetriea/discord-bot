@@ -61,6 +61,19 @@ Your saved data now survives redeploys.
 - If you don't set `STORAGE_CHANNEL_ID`, nothing changes from before
 - **Make the storage channel private.** Chat memory is stored in it
 - **How to update:** replace your `bot.py` with the new one (see step 11 in the README), then add `STORAGE_CHANNEL_ID` in Render if you want persistence. No `requirements.txt` changes needed
+# v1.4.1
+Added a warning for "fuck you".
+
+**What changed:**
+- The bot now flags messages that say "fuck you" and pings the person in a warnings channel
+- The warning is a message that mentions the user, plus a card with the **reason**, the channel it was said in, a link to the message and what they said
+- It catches different capitals, extra spaces, stretched letters ("FUUUCK YOUUU"), "fuck u", and hidden zero-width characters. It does not flag things like "what the fuck" or "fuck yourself"
+- It only posts the warning. It doesn't delete the message or punish anyone
+- It ignores bots and DMs, and won't warn the same person more than once every 10 seconds, so a spammer can't flood the warnings channel
+- New owner command `!warnchannel <here|#channel|id|clear>` sets where warnings go. Typing `!warnchannel` alone shows the current one
+- It's off until you set a warnings channel, and the setting is saved with your other data
+- The README command list now also includes the moderation commands (`!ban`, `!unban`, `!kick`, `!timeout`, `!untimeout`) and `!backup`
+- **How to update:** replace your `bot.py` with the new one (see step 11 in the README), then type `!warnchannel here` in the channel you want. No new variables or `requirements.txt` changes needed
 # Known Issues
 Things I know about and haven't fixed yet:
 - `!play` and `!vc` audio need ffmpeg, which might not be installed on Render. Use `!diag` and check the `FFmpeg Binary` line to see
