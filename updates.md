@@ -25,6 +25,15 @@ Fixed the commands that were listed but didn't do anything.
 - The dashboard buttons (Bot Info, Stats, Wipe All, List All) should now work too, since they use the same handlers
 - Removed these commands from Known Issues and from [fixes.md](fixes.md)
 - **How to update:** replace your `bot.py` with the new one (see step 11 in the README), no new variables or `requirements.txt` changes needed
+# v1.2.1
+Small fix for `!purge`.
+
+**What happened:** `!purge <count>` deleted one message fewer than you asked for. For example, `!purge 5` only deleted 4. The bot skips your command message so it can reply to it, but that message was still counted toward the limit.
+
+**What changed:**
+- `!purge <count>` now deletes the full number of messages you ask for, not counting your command message
+- Nothing else changed
+- **How to update:** replace your `bot.py` with the new one (see step 11 in the README), no new variables or `requirements.txt` changes needed
 # Known Issues
 Things I know about and haven't fixed yet:
 - On Render's free tier, saved files (`!addq` questions, saved personas, chat memory) can reset whenever the bot redeploys, including when you update `bot.py`
