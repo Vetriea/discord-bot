@@ -61,17 +61,6 @@ Your saved data now survives redeploys.
 - If you don't set `STORAGE_CHANNEL_ID`, nothing changes from before
 - **Make the storage channel private.** Chat memory is stored in it
 - **How to update:** replace your `bot.py` with the new one (see step 11 in the README), then add `STORAGE_CHANNEL_ID` in Render if you want persistence. No `requirements.txt` changes needed
-# v1.4.2
-You can now add your own flagged phrases.
-- New owner command `!addflag <phrase> | [reason]` flags a phrase. Example: `!addflag shut up | Told someone to shut up`. Without a reason it uses "Said a flagged phrase"
-- `!removeflag <phrase>` stops flagging a phrase
-- `!flagged` lists the built-in and custom phrases, their reasons and the current warnings channel
-- Custom phrases ignore capitals and extra spaces, and only match whole words ("shut up" won't flag "shutup", "idiot" won't flag "idiotic")
-- Special characters are matched as typed, so nothing you add can break the bot
-- Phrases are saved with your other data, so they survive redeploys if you set up storage
-- Up to 200 custom phrases. The built-in "fuck you" flag can't be removed
-- When you (the owner) run a command like `!addflag <phrase>`, the bot won't warn you for the phrase you typed in it
-- **How to update:** replace your `bot.py` with the new one (see step 11 in the README). No new variables or `requirements.txt` changes needed
 # v1.4.1
 Added a warning for "fuck you".
 
@@ -85,6 +74,17 @@ Added a warning for "fuck you".
 - It's off until you set a warnings channel, and the setting is saved with your other data
 - The README command list now also includes the moderation commands (`!ban`, `!unban`, `!kick`, `!timeout`, `!untimeout`) and `!backup`
 - **How to update:** replace your `bot.py` with the new one (see step 11 in the README), then type `!warnchannel here` in the channel you want. No new variables or `requirements.txt` changes needed
+# v1.4.2
+You can now add your own flagged phrases.
+- New owner command `!addflag <phrase> | [reason]` flags a phrase. Example: `!addflag shut up | Told someone to shut up`. Without a reason it uses "Said a flagged phrase"
+- `!removeflag <phrase>` stops flagging a phrase
+- `!flagged` lists the built-in and custom phrases, their reasons and the current warnings channel
+- Custom phrases ignore capitals and extra spaces, and only match whole words ("shut up" won't flag "shutup", "idiot" won't flag "idiotic")
+- Special characters are matched as typed, so nothing you add can break the bot
+- Phrases are saved with your other data, so they survive redeploys if you set up storage
+- Up to 200 custom phrases. The built-in "fuck you" flag can't be removed
+- When you (the owner) run a command like `!addflag <phrase>`, the bot won't warn you for the phrase you typed in it
+- **How to update:** replace your `bot.py` with the new one (see step 11 in the README). No new variables or `requirements.txt` changes needed
 # Known Issues
 Things I know about and haven't fixed yet:
 - `!play` and `!vc` audio need ffmpeg, which might not be installed on Render. Use `!diag` and check the `FFmpeg Binary` line to see
