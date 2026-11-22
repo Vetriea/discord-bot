@@ -888,17 +888,23 @@ ADMIN_DISCORD_COMMANDS = {
 }
 
 
+active_command_message = None
+
+
 async def run_admin_from_discord(cmd_body: str, message: discord.Message):
     """Run an admin command from Discord, capture stdout, and reply with it."""
+    global active_command_message
     buf = io.StringIO()
     old_stdout = sys.stdout
     sys.stdout = buf
+    active_command_message = message
     try:
         await execute_admin_command(cmd_body, message.channel)
     except Exception as e:
         print(f"ERROR: {e}")
     finally:
         sys.stdout = old_stdout
+        active_command_message = None
     output = buf.getvalue().strip()
     if output:
         # Split into chunks of 1900 chars (code block wrapper takes some)
@@ -1500,7 +1506,7 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         text = "/" + text
 
     if text == "/help":
-        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag")
+        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq")
         return current_channel
 
     if text == "/list":
@@ -1730,6 +1736,85 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         elif arg.isdigit():
             set_snipe_alert_channel(int(arg))
             print(f"Snipe alert set to channel {arg}")
+        return current_channel
+
+    if text == "/ping":
+        print(f"Pong! Latency: {round(bot.latency * 1000)}ms")
+        return current_channel
+
+    if text == "/uptime":
+        print(f"Uptime: {format_uptime((datetime.datetime.now() - START_TIME).total_seconds())}")
+        return current_channel
+
+    if text == "/info":
+        total_members = sum(g.member_count or 0 for g in bot.guilds)
+        persona_preview = current_persona if len(current_persona) <= 120 else current_persona[:117] + "..."
+        print(f"Bot: {bot.user} (ID: {bot.user.id})")
+        print(f"Servers: {len(bot.guilds)}  |  Members: {total_members}")
+        print(f"Latency: {round(bot.latency * 1000)}ms")
+        print(f"Uptime: {format_uptime((datetime.datetime.now() - START_TIME).total_seconds())}")
+        print(f"AI model: {ai_model}  |  Temp: {ai_temperature}  |  Max tokens: {ai_max_tokens}")
+        print(f"Persona: {persona_preview}")
+        print(f"Voice connections: {len(bot.voice_clients)}")
+        return current_channel
+
+    if text == "/purge" or text.startswith("/purge "):
+        arg = text[6:].strip()
+        if not arg.isdigit() or int(arg) < 1:
+            print("Usage: !purge <count>  (a number from 1 to 1000)")
+            return current_channel
+        count = min(int(arg), 1000)
+        keep_id = active_command_message.id if active_command_message else None
+        try:
+            deleted = await current_channel.purge(limit=count, check=lambda m: m.id != keep_id)
+            print(f"Purged {len(deleted)} message(s) from #{current_channel.name}.")
+        except discord.Forbidden:
+            print("I don't have the Manage Messages permission in this channel.")
+        except discord.HTTPException as e:
+            print(f"Purge failed: {e}")
+        except AttributeError:
+            print("Purge only works in server text channels.")
+        return current_channel
+
+    if text == "/snipestats":
+        del_total = sum(len(d) for d in sniped_deletes.values())
+        edit_total = sum(len(d) for d in sniped_edits.values())
+        print(f"Stored deleted messages: {del_total} across {len([c for c, d in sniped_deletes.items() if d])} channel(s)")
+        print(f"Stored edited messages: {edit_total} across {len([c for c, d in sniped_edits.items() if d])} channel(s)")
+        print(f"Max per channel: {SNIPE_MAX_PER_CHANNEL}")
+        alert = f"<#{snipe_alert_channel_id}>" if snipe_alert_channel_id else "off"
+        print(f"Snipe alerts: {alert}  |  Edit alerts: {'on' if snipe_alert_edits else 'off'}")
+        busiest = sorted(
+            ((cid, len(sniped_deletes.get(cid, [])) + len(sniped_edits.get(cid, []))) for cid in set(sniped_deletes) | set(sniped_edits)),
+            key=lambda kv: kv[1], reverse=True,
+        )[:5]
+        for cid, n in busiest:
+            ch = bot.get_channel(cid)
+            print(f"  - #{ch.name if ch else cid}: {n} stored")
+        return current_channel
+
+    if text == "/snipewipe":
+        del_total = sum(len(d) for d in sniped_deletes.values())
+        edit_total = sum(len(d) for d in sniped_edits.values())
+        sniped_deletes.clear()
+        sniped_edits.clear()
+        print(f"Wiped {del_total} deleted and {edit_total} edited message(s) from snipe storage.")
+        return current_channel
+
+    if text == "/customq":
+        custom = load_custom_questions()
+        topics = {k: v for k, v in custom.items() if k not in RESERVED_CUSTOM_KEYS and isinstance(v, list) and v}
+        if not topics:
+            print("No custom questions yet. Add one with !addq Topic | Question | Answer")
+            return current_channel
+        total = 0
+        for topic in sorted(topics):
+            entries = topics[topic]
+            total += len(entries)
+            print(f"{topic} ({len(entries)}):")
+            for i, entry in enumerate(entries, 1):
+                print(f"  {i}. {entry.get('question', '')}  ->  {entry.get('answer', '')}")
+        print(f"Total custom questions: {total}")
         return current_channel
 
     if text == "/diag":
