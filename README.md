@@ -121,8 +121,16 @@ You can reuse the **same** OpenRouter key and Owner ID for every bot, so steps 3
 
 ## 11. Updating Your Bot
 What if I update bot.py? Don't worry, updating is way easier than the first setup.
-Check [updates.md](updates.md) on my repository to see if there is a new version and what changed.
-If there is, do this:
+### How do I know if there is an update?
+The fastest way is to let Github tell you:
+1. Go to my repository and press the **Watch** button at the top.
+2. Press **Custom**, tick **Releases**, then press **Apply**.
+
+Now every time I publish a new release (like **V1.1**), Github will notify you by itself, so you don't have to keep checking. You can also look at the **Releases** section on the right side of my repository to see the latest version anytime.
+Then check [updates.md](updates.md) on my repository to see what changed.
+
+### How do I update it?
+If there is an update, do this:
 1. Open `bot.py` on my repository and copy **all** of it.
 2. Go to **your** Github repository, open `bot.py`, and press the pencil icon to edit it.
 3. Select everything, delete it, and paste the new version in.
