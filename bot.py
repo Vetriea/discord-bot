@@ -1766,7 +1766,7 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         count = min(int(arg), 1000)
         keep_id = active_command_message.id if active_command_message else None
         try:
-            deleted = await current_channel.purge(limit=count, check=lambda m: m.id != keep_id)
+            deleted = await current_channel.purge(limit=count + (1 if keep_id else 0), check=lambda m: m.id != keep_id)
             print(f"Purged {len(deleted)} message(s) from #{current_channel.name}.")
         except discord.Forbidden:
             print("I don't have the Manage Messages permission in this channel.")
