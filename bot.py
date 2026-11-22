@@ -999,6 +999,64 @@ def set_snipe_alert_channel(channel_id, include_edits=None):
     save_json_file(BOT_STATE_FILE, bot_state)
 
 
+# ---------------------------------------------------------------------------
+# Warnings: flags certain phrases and pings the person in the warnings channel
+# ---------------------------------------------------------------------------
+warn_channel_id = bot_state.get("warn_channel_id")
+WARN_COOLDOWN_SECONDS = 10
+last_warned = {}
+
+# (pattern, reason). Add more lines here to flag more phrases.
+FLAGGED_PHRASES = [
+    (re.compile(r"\bf+u+c+k+\s+(?:yo+u+|u+)\b"), "Told someone \"fuck you\""),
+]
+
+
+def set_warn_channel(channel_id):
+    global warn_channel_id
+    warn_channel_id = channel_id
+    bot_state["warn_channel_id"] = channel_id
+    save_json_file(BOT_STATE_FILE, bot_state)
+
+
+def find_flagged_reason(text: str):
+    """Returns the reason string if the text contains a flagged phrase, else None."""
+    cleaned = re.sub(r"[\u200b\u200c\u200d\u2060\ufeff]", "", text or "").lower()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    for pattern, reason in FLAGGED_PHRASES:
+        if pattern.search(cleaned):
+            return reason
+    return None
+
+
+async def check_and_warn(message: discord.Message):
+    """If the message has a flagged phrase, ping the author in the warnings channel."""
+    if not warn_channel_id or message.guild is None or not message.content:
+        return
+    reason = find_flagged_reason(message.content)
+    if not reason:
+        return
+    now = time.time()
+    if now - last_warned.get(message.author.id, 0) < WARN_COOLDOWN_SECONDS:
+        return  # avoid flooding the warnings channel
+    last_warned[message.author.id] = now
+    try:
+        channel = bot.get_channel(warn_channel_id) or await bot.fetch_channel(warn_channel_id)
+        embed = discord.Embed(title="⚠️ Warning", color=discord.Color.orange(), timestamp=datetime.datetime.now())
+        embed.add_field(name="Reason", value=reason, inline=False)
+        embed.add_field(name="Channel", value=message.channel.mention, inline=True)
+        embed.add_field(name="Message", value=f"[Jump to message]({message.jump_url})", inline=True)
+        embed.add_field(name="They said", value=message.content[:900], inline=False)
+        embed.set_footer(text=f"User ID: {message.author.id}")
+        await channel.send(
+            content=f"{message.author.mention} you have been warned.",
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(users=[message.author], roles=False, everyone=False),
+        )
+    except Exception as e:
+        print(f"Warning send failed: {e}")
+
+
 def format_elapsed(delta: datetime.timedelta) -> str:
     seconds = int(delta.total_seconds())
     if seconds < 60:
@@ -1023,7 +1081,7 @@ ADMIN_DISCORD_COMMANDS = {
     "temperature", "maxtokens", "info", "ping", "uptime", "servers",
     "members", "whois", "channelinfo", "serverinfo", "memory", "export",
     "purge", "say", "reply", "react", "embed", "spam", "poll", "timer",
-    "reload", "backup", "ban", "unban", "kick", "timeout", "untimeout",
+    "reload", "backup", "warnchannel", "ban", "unban", "kick", "timeout", "untimeout",
 }
 
 
@@ -1077,6 +1135,7 @@ async def cmd_help_discord(message: discord.Message):
         lines.append("  `!list`  •  `!diag`  •  `!info`  •  `!ping`  •  `!uptime`")
         lines.append("  `!ban <user> [reason]`  •  `!unban <user id> [reason]`  •  `!kick <user> [reason]`")
         lines.append("  `!timeout <user> <10m|2h|1d> [reason]`  •  `!untimeout <user>`")
+        lines.append("  `!warnchannel <here|#channel|id|clear>`  (where warnings get posted)")
         lines.append("  `!backup`  (save your data to the storage channel now)")
         lines.append("  `!say <#channel> <msg>`  •  `!dm <uid> <msg>`")
         lines.append("  `!model <name>`  •  `!vc <name>`  •  `!play <query>`  •  `!stop`  •  `!leave`")
@@ -1762,7 +1821,7 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         text = "/" + text
 
     if text == "/help":
-        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq, /ban, /unban, /kick, /timeout, /untimeout, /backup")
+        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq, /ban, /unban, /kick, /timeout, /untimeout, /backup, /warnchannel")
         return current_channel
 
     if text == "/list":
@@ -1994,6 +2053,26 @@ async def execute_admin_command(raw_cmd: str, current_channel):
             print(f"Snipe alert set to channel {arg}")
         return current_channel
 
+    if text == "/warnchannel" or text.startswith("/warnchannel "):
+        arg = text[12:].strip()
+        m = re.fullmatch(r"<#(\d+)>|(\d{15,25})", arg)
+        if arg == "clear" or arg == "off":
+            set_warn_channel(None)
+            print("Warnings turned off.")
+        elif arg == "here":
+            set_warn_channel(current_channel.id)
+            print(f"Warnings will be posted in #{current_channel.name}.")
+        elif m:
+            cid = int(m.group(1) or m.group(2))
+            set_warn_channel(cid)
+            print(f"Warnings will be posted in channel {cid}.")
+        elif not arg:
+            print(f"Warnings channel: {('<#' + str(warn_channel_id) + '>') if warn_channel_id else 'off'}")
+            print("Usage: !warnchannel <here|#channel|id|clear>")
+        else:
+            print("Usage: !warnchannel <here|#channel|id|clear>")
+        return current_channel
+
     for _mod in ("untimeout", "unban", "timeout", "ban", "kick"):
         if text == f"/{_mod}" or text.startswith(f"/{_mod} "):
             await execute_mod_command(_mod, text[len(_mod) + 1:].strip(), current_channel)
@@ -2189,6 +2268,9 @@ async def on_ready():
 async def on_message(message):
     if message.author == bot.user:
         return
+
+    if not message.author.bot:
+        await check_and_warn(message)
 
     is_dm = isinstance(message.channel, discord.DMChannel)
     if is_dm:
