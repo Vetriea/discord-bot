@@ -884,7 +884,7 @@ ADMIN_DISCORD_COMMANDS = {
     "temperature", "maxtokens", "info", "ping", "uptime", "servers",
     "members", "whois", "channelinfo", "serverinfo", "memory", "export",
     "purge", "say", "reply", "react", "embed", "spam", "poll", "timer",
-    "reload",
+    "reload", "ban", "unban", "kick", "timeout", "untimeout",
 }
 
 
@@ -936,6 +936,8 @@ async def cmd_help_discord(message: discord.Message):
         lines.append("  `!snipestats`  •  `!snipewipe`  •  `!customq`")
         lines.append("  `!clear`  •  `!purge <count>`  •  `!forget`  •  `!forgetall`")
         lines.append("  `!list`  •  `!diag`  •  `!info`  •  `!ping`  •  `!uptime`")
+        lines.append("  `!ban <user> [reason]`  •  `!unban <user id> [reason]`  •  `!kick <user> [reason]`")
+        lines.append("  `!timeout <user> <10m|2h|1d> [reason]`  •  `!untimeout <user>`")
         lines.append("  `!say <#channel> <msg>`  •  `!dm <uid> <msg>`")
         lines.append("  `!model <name>`  •  `!vc <name>`  •  `!play <query>`  •  `!stop`  •  `!leave`")
         lines.append("  *(also: `!bot /<command>` still works as a fallback)*")
@@ -1499,6 +1501,120 @@ async def restore_bot_state():
         print(f"Could not restore bot state: {e}")
 
 
+MAX_TIMEOUT = datetime.timedelta(days=28)
+
+
+def parse_user_id(token: str):
+    """Turn '<@123>', '<@!123>' or '123' into an int user ID, else None."""
+    m = re.fullmatch(r"<@!?(\d{15,25})>|(\d{15,25})", token.strip())
+    if not m:
+        return None
+    return int(m.group(1) or m.group(2))
+
+
+def parse_duration(token: str):
+    """Turn '30s', '10m', '2h', '1d', '1w' (or combos like '1h30m') into a timedelta, else None."""
+    token = token.strip().lower()
+    if not re.fullmatch(r"(\d+[smhdw])+", token):
+        return None
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+    total = sum(int(n) * units[u] for n, u in re.findall(r"(\d+)([smhdw])", token))
+    return datetime.timedelta(seconds=total) if total > 0 else None
+
+
+def mod_target_error(user_id: int, guild: discord.Guild):
+    """Return an error string if this user must not be moderated, else None."""
+    if user_id == bot.user.id:
+        return "I won't do that to myself."
+    if OWNER_ID and user_id == OWNER_ID:
+        return "That's the bot owner, refusing."
+    if user_id == guild.owner_id:
+        return "That's the server owner, Discord doesn't allow that."
+    return None
+
+
+async def execute_mod_command(name: str, args: str, current_channel):
+    """Handle ban / unban / kick / timeout / untimeout. Prints the result."""
+    guild = getattr(current_channel, "guild", None)
+    if guild is None:
+        print("Moderation commands only work in a server channel. Use !ch <channel> to pick one.")
+        return
+    usage = {
+        "ban": "Usage: !ban <@user|id> [reason]",
+        "unban": "Usage: !unban <user id> [reason]",
+        "kick": "Usage: !kick <@user|id> [reason]",
+        "timeout": "Usage: !timeout <@user|id> <duration like 10m, 2h, 1d> [reason]  (max 28d)",
+        "untimeout": "Usage: !untimeout <@user|id>",
+    }
+    parts = args.split(None, 1)
+    if not parts:
+        print(usage[name])
+        return
+    user_id = parse_user_id(parts[0])
+    if user_id is None:
+        print(f"Couldn't read a user from '{parts[0]}'. Use a mention or a numeric user ID.")
+        print(usage[name])
+        return
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    audit = f"{name} by bot owner"
+
+    if name != "unban":
+        err = mod_target_error(user_id, guild)
+        if err:
+            print(err)
+            return
+
+    try:
+        if name == "ban":
+            reason = rest or None
+            await guild.ban(discord.Object(id=user_id), reason=(f"{audit}: {reason}" if reason else audit), delete_message_seconds=0)
+            print(f"Banned {user_id} from {guild.name}." + (f" Reason: {reason}" if reason else ""))
+
+        elif name == "unban":
+            await guild.unban(discord.Object(id=user_id), reason=(f"{audit}: {rest}" if rest else audit))
+            print(f"Unbanned {user_id} in {guild.name}.")
+
+        elif name == "kick":
+            member = await guild.fetch_member(user_id)
+            await member.kick(reason=(f"{audit}: {rest}" if rest else audit))
+            print(f"Kicked {member} from {guild.name}." + (f" Reason: {rest}" if rest else ""))
+
+        elif name == "timeout":
+            dur_parts = rest.split(None, 1)
+            if not dur_parts:
+                print(usage[name])
+                return
+            duration = parse_duration(dur_parts[0])
+            if duration is None:
+                print(f"Couldn't read the duration '{dur_parts[0]}'. Use something like 30s, 10m, 2h, 1d.")
+                return
+            if duration > MAX_TIMEOUT:
+                print("Discord's maximum timeout is 28 days.")
+                return
+            reason = dur_parts[1].strip() if len(dur_parts) > 1 else ""
+            member = await guild.fetch_member(user_id)
+            await member.timeout(duration, reason=(f"{audit}: {reason}" if reason else audit))
+            print(f"Timed out {member} for {format_elapsed(duration)}." + (f" Reason: {reason}" if reason else ""))
+
+        elif name == "untimeout":
+            member = await guild.fetch_member(user_id)
+            await member.timeout(None, reason=audit)
+            print(f"Removed the timeout from {member}.")
+
+    except discord.NotFound:
+        if name == "unban":
+            print(f"{user_id} isn't banned in {guild.name} (or doesn't exist).")
+        elif name == "ban":
+            print(f"No Discord user with ID {user_id}.")
+        else:
+            print(f"{user_id} isn't a member of {guild.name}.")
+    except discord.Forbidden:
+        print("I can't do that. Check that I have the right permission (Ban Members / Kick Members / Moderate Members) "
+              "and that my role is above that user's highest role in Server Settings -> Roles.")
+    except discord.HTTPException as e:
+        print(f"Discord rejected that: {e}")
+
+
 async def execute_admin_command(raw_cmd: str, current_channel):
     global current_persona, tts_pitch, chat_memory, saved_personas, ai_model, ai_temperature, ai_max_tokens
     text = raw_cmd.strip()
@@ -1506,7 +1622,7 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         text = "/" + text
 
     if text == "/help":
-        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq")
+        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq, /ban, /unban, /kick, /timeout, /untimeout")
         return current_channel
 
     if text == "/list":
@@ -1737,6 +1853,11 @@ async def execute_admin_command(raw_cmd: str, current_channel):
             set_snipe_alert_channel(int(arg))
             print(f"Snipe alert set to channel {arg}")
         return current_channel
+
+    for _mod in ("untimeout", "unban", "timeout", "ban", "kick"):
+        if text == f"/{_mod}" or text.startswith(f"/{_mod} "):
+            await execute_mod_command(_mod, text[len(_mod) + 1:].strip(), current_channel)
+            return current_channel
 
     if text == "/ping":
         print(f"Pong! Latency: {round(bot.latency * 1000)}ms")
