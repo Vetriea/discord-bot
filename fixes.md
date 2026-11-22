@@ -26,8 +26,14 @@ CMD ["python", "bot.py"]
 *(I haven't tested this exact Dockerfile on Render, so if it fails, check the build logs and tell me what it says.)*
 ## `!tts` not working
 It only works when the bot is hosted on a Windows PC, so on Render there is no fix. Use `!play` instead.
-## Commands that don't do anything
-Nothing to fix on your side, just don't use `!purge`, `!ping`, `!uptime`, `!info`, `!snipestats`, `!snipewipe` or `!customq` for now. I'll add them in a future update.
+## `!purge` says I don't have the Manage Messages permission
+The bot needs the **Manage Messages** permission in that channel. Either re-invite it with the permission ticked (README step 2), or in Discord open the channel's settings, go to Permissions, and allow **Manage Messages** for the bot's role.
+## `!purge` is slow on old messages
+Discord only lets bots delete messages newer than 14 days in bulk. Older ones are deleted one by one, which can take a while and can hit rate limits (see step 12 in the README). Use smaller counts if this happens.
+## `!ban`, `!kick` or `!timeout` says "I can't do that"
+Two things cause this. The bot is missing the permission (**Ban Members**, **Kick Members** or **Moderate Members**), or the bot's role is not above the target's highest role. In Discord go to Server Settings, then Roles, and drag the bot's role above the roles of the people you want to moderate. Nobody can be timed out or kicked by a bot if they have a higher role, and **Administrator** members can never be timed out.
+## `!timeout` says it can't read the duration
+Use a number followed by `s`, `m`, `h`, `d` or `w`, with no spaces, for example `!timeout @user 10m spamming`. You can combine them like `1h30m`. The maximum is 28 days.
 ## The AI reply freezing the bot
 Nothing to fix on your side, just wait a moment for the reply. I'll fix it in a future update of `bot.py`.
 ## Why is it slow?
@@ -40,4 +46,4 @@ There isn't just one reason, a few things can make the bot slow, and most of the
 - **Old chat memory.** The bot saves its whole memory file every time someone talks to it, so over time it gets bigger. This helps only a little, but `!forgetall` wipes it if the bot has been running for a long time.
 
 If you turned on the dashboard, `/panel` shows the bot's latency, so you can tell if it's the bot (high latency) or the AI model (normal latency but slow replies).
-*(`!ping` is in the command list but doesn't work yet, so use the dashboard for this.)*
+*(You can also use `!ping` to see the latency.)*
