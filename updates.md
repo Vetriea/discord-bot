@@ -34,6 +34,18 @@ Small fix for `!purge`.
 - `!purge <count>` now deletes the full number of messages you ask for, not counting your command message
 - Nothing else changed
 - **How to update:** replace your `bot.py` with the new one (see step 11 in the README), no new variables or `requirements.txt` changes needed
+# v1.3
+Added moderation commands (owner only).
+- `!ban <@user|id> [reason]` bans a user, even if they are not in the server anymore
+- `!unban <user id> [reason]` unbans a user
+- `!kick <@user|id> [reason]` kicks a member
+- `!timeout <@user|id> <duration> [reason]` times a member out, duration like `30s`, `10m`, `2h`, `1d`, `1w` or `1h30m` (Discord's max is 28 days)
+- `!untimeout <@user|id>` removes a timeout
+- They work on the server of the channel you use them in (or the one picked with `!ch` in the console)
+- The bot refuses to moderate itself, you (the owner) or the server owner, and says so if its role is too low or it's missing a permission
+- Actions show up in the server's Audit Log with the reason you gave
+- If you gave the bot **Administrator** you don't need to change anything. If you picked permissions by hand, add **Ban Members**, **Kick Members** and **Moderate Members** (README step 2), and make sure the bot's role is above the roles of the people you moderate
+- **How to update:** replace your `bot.py` with the new one (see step 11 in the README), no new variables or `requirements.txt` changes needed
 # Known Issues
 Things I know about and haven't fixed yet:
 - On Render's free tier, saved files (`!addq` questions, saved personas, chat memory) can reset whenever the bot redeploys, including when you update `bot.py`
