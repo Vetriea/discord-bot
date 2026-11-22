@@ -85,6 +85,40 @@ You can now add your own flagged phrases.
 - Up to 200 custom phrases. The built-in "fuck you" flag can't be removed
 - When you (the owner) run a command like `!addflag <phrase>`, the bot won't warn you for the phrase you typed in it
 - **How to update:** replace your `bot.py` with the new one (see step 11 in the README). No new variables or `requirements.txt` changes needed
+# v1.5
+Finished the rest of the owner commands.
+
+**What happened:** 20 more owner commands were listed as valid (and the dashboard's **View Memory** button used one of them) but had no code behind them, so they did nothing. Now every command in the owner list works.
+
+**Bot control:**
+- `!pause` / `!resume` turn the bot's AI replies off and on. Owner commands and public commands (`!snipe`, `!addq`...) still work while paused, and it stays paused after a restart. `!info` shows if it's paused
+- `!temperature <0-2>` and `!maxtokens <1-8192|off>` change the AI settings (typing them without a value shows the current one)
+- `!reload` re-reads the data files from disk (memory, personas, flags, settings)
+- `!nick <name|reset>` changes the bot's nickname in the server (needs Change Nickname)
+- `!avatar <image url>` changes the bot's avatar from a direct png, jpg, gif or webp link under 8 MB (Discord only allows this a couple of times an hour)
+
+**Info:**
+- `!servers` lists the servers the bot is in
+- `!serverinfo [id]` shows details about a server (owner, created, members, channels, roles, boosts)
+- `!channelinfo [#channel]` shows details about a channel (type, category, topic, slowmode, created)
+- `!members` shows the member count and about how many are online
+- `!whois <@user|id>` shows account age, and in this server also nickname, join date, roles and any timeout
+- `!memory` shows the last 10 saved chat messages in this channel, `!memory all` shows every channel. This also fixes the dashboard's **View Memory** button
+- `!export [memory|personas|questions|state|all]` sends your data files to your DMs (never to the channel, because memory can hold private messages)
+
+**Messaging:**
+- `!reply <message id or link> <text>` replies to a message
+- `!react <message id or link> <emoji>` adds a reaction (custom emojis work too)
+- `!embed <title> | <description> | [#color]` posts an embed
+- `!poll <question> | <option> | <option> ...` posts a poll with number reactions, up to 10 options. With no options it's a yes/no poll
+- `!timer <30s|10m|2h> [message]` pings you in the channel when time is up (max 24 hours, up to 10 at once, lost if the bot restarts)
+- `!spam <1-10> <text>` sends a message several times, one per 1.2 seconds. Mentions are switched off so it can't ping anyone
+
+**Safety notes:**
+- All of these are owner only
+- Nothing here can ping `@everyone`, `@here` or roles
+
+- **How to update:** replace your `bot.py` with the new one (see step 11 in the README). No new variables or `requirements.txt` changes needed
 # Known Issues
 Things I know about and haven't fixed yet:
 - `!play` and `!vc` audio need ffmpeg, which might not be installed on Render. Use `!diag` and check the `FFmpeg Binary` line to see
