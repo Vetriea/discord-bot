@@ -1172,7 +1172,12 @@ async def cmd_help_discord(message: discord.Message):
         lines.append("  `!timeout <user> <10m|2h|1d> [reason]`  •  `!untimeout <user>`")
         lines.append("  `!warnchannel <here|#channel|id|clear>`  (where warnings get posted)")
         lines.append("  `!addflag <phrase> | [reason]`  •  `!removeflag <phrase>`  •  `!flagged`")
-        lines.append("  `!backup`  (save your data to the storage channel now)")
+        lines.append("  `!pause` • `!resume` • `!reload` • `!backup` • `!export [memory|personas|questions|state|all]`")
+        lines.append("  `!temperature <0-2>` • `!maxtokens <n|off>` • `!memory [all]`")
+        lines.append("  `!nick <name|reset>` • `!avatar <image url>`")
+        lines.append("  `!servers` • `!serverinfo [id]` • `!channelinfo [#channel]` • `!members` • `!whois <user>`")
+        lines.append("  `!reply <msg id> <text>` • `!react <msg id> <emoji>` • `!embed <title> | <text> | [color]`")
+        lines.append("  `!poll <question> | <opt> | <opt>` • `!timer <10m> [message]` • `!spam <1-10> <text>`")
         lines.append("  `!say <#channel> <msg>`  •  `!dm <uid> <msg>`")
         lines.append("  `!model <name>`  •  `!vc <name>`  •  `!play <query>`  •  `!stop`  •  `!leave`")
         lines.append("  *(also: `!bot /<command>` still works as a fallback)*")
@@ -1736,6 +1741,524 @@ async def restore_bot_state():
         print(f"Could not restore bot state: {e}")
 
 
+# ---------------------------------------------------------------------------
+# v1.5: the remaining owner commands
+# ---------------------------------------------------------------------------
+bot_paused = bool(bot_state.get("paused", False))
+active_timers = set()
+NUMBER_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+MAX_TIMER = datetime.timedelta(hours=24)
+MAX_AVATAR_BYTES = 8 * 1024 * 1024
+NO_MENTIONS = discord.AllowedMentions.none()
+
+
+def set_paused(value: bool):
+    global bot_paused
+    bot_paused = value
+    bot_state["paused"] = value
+    save_json_file(BOT_STATE_FILE, bot_state)
+
+
+def reload_data_files():
+    """Re-read the data files from disk into memory. Returns a short summary."""
+    global chat_memory, saved_personas, snipe_alert_channel_id, snipe_alert_edits, warn_channel_id, bot_paused
+    chat_memory = load_json_file(MEMORY_FILE, {})
+    saved_personas = load_json_file(PERSONAS_FILE, {})
+    new_state = load_json_file(BOT_STATE_FILE, {})
+    bot_state.clear()
+    bot_state.update(new_state)
+    snipe_alert_channel_id = bot_state.get("snipe_alert_channel_id")
+    snipe_alert_edits = bot_state.get("snipe_alert_edits", False)
+    warn_channel_id = bot_state.get("warn_channel_id")
+    bot_paused = bool(bot_state.get("paused", False))
+    load_custom_flags()
+    return (f"{len(chat_memory)} chat memories, {len(saved_personas)} personas, "
+            f"{len(custom_flags)} custom flags, {len(load_custom_questions_safe())} custom topics")
+
+
+def load_custom_questions_safe():
+    try:
+        data = load_custom_questions()
+        return {k: v for k, v in data.items() if k not in RESERVED_CUSTOM_KEYS}
+    except Exception:
+        return {}
+
+
+def cmd_args(text: str, name: str):
+    """'/name' -> '' , '/name some args' -> 'some args', anything else -> None."""
+    if text == f"/{name}":
+        return ""
+    if text.startswith(f"/{name} "):
+        return text[len(name) + 2:].strip()
+    return None
+
+
+def fmt_date(dt) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M UTC") if dt else "unknown"
+
+
+def parse_message_ref(token: str, current_channel):
+    """Accepts a message ID or a message link. Returns (channel, message_id) or (None, None)."""
+    token = token.strip()
+    link = re.search(r"channels/(?:\d+|@me)/(\d+)/(\d+)", token)
+    if link:
+        ch = bot.get_channel(int(link.group(1))) or current_channel
+        return ch, int(link.group(2))
+    if token.isdigit() and 15 <= len(token) <= 25:
+        return current_channel, int(token)
+    return None, None
+
+
+async def run_timer(channel, seconds: float, note: str):
+    try:
+        await asyncio.sleep(seconds)
+        ping = f"<@{OWNER_ID}> " if OWNER_ID else ""
+        await channel.send(
+            f"⏰ {ping}Timer finished" + (f": {note}" if note else "."),
+            allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=OWNER_ID)]) if OWNER_ID else NO_MENTIONS,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        print(f"Timer failed to send: {e}")
+    finally:
+        active_timers.discard(asyncio.current_task())
+
+
+async def execute_extra_command(text: str, current_channel) -> bool:
+    """Handles the v1.5 commands. Prints the result. Returns True if the command was handled."""
+    global ai_temperature, ai_max_tokens
+
+    # ---- pause / resume ----
+    if text == "/pause":
+        set_paused(True)
+        print("Paused. The bot won't reply with AI until you use !resume (owner commands and public commands still work).")
+        return True
+    if text == "/resume":
+        set_paused(False)
+        print("Resumed. AI replies are back on.")
+        return True
+
+    # ---- nick ----
+    arg = cmd_args(text, "nick")
+    if arg is not None:
+        guild = getattr(current_channel, "guild", None)
+        if guild is None:
+            print("Nicknames only work in a server channel.")
+            return True
+        if not arg:
+            print(f"Current nickname in {guild.name}: {guild.me.nick or '(none, using ' + bot.user.name + ')'}")
+            print("Usage: !nick <new nickname>  or  !nick reset")
+            return True
+        new_nick = None if arg.lower() in ("reset", "clear", "none") else arg
+        if new_nick and len(new_nick) > 32:
+            print("Nicknames can be at most 32 characters.")
+            return True
+        try:
+            await guild.me.edit(nick=new_nick)
+            print(f"Nickname set to {new_nick}." if new_nick else "Nickname reset.")
+        except discord.Forbidden:
+            print("I need the Change Nickname permission for that.")
+        except discord.HTTPException as e:
+            print(f"Discord rejected that: {e}")
+        return True
+
+    # ---- avatar ----
+    arg = cmd_args(text, "avatar")
+    if arg is not None:
+        if not arg:
+            print(f"Current avatar: {bot.user.display_avatar.url}")
+            print("Usage: !avatar <direct image url>  (png, jpg, gif or webp, under 8 MB)")
+            return True
+        if not re.match(r"https?://", arg):
+            print("Give me a direct image link that starts with http:// or https://")
+            return True
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                async with session.get(arg) as resp:
+                    if resp.status != 200:
+                        print(f"Couldn't download that image (HTTP {resp.status}).")
+                        return True
+                    ctype = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                    if ctype not in ("image/png", "image/jpeg", "image/gif", "image/webp"):
+                        print(f"That link isn't a png, jpg, gif or webp image (got '{ctype or 'unknown'}').")
+                        return True
+                    if int(resp.headers.get("Content-Length") or 0) > MAX_AVATAR_BYTES:
+                        print("That image is over 8 MB.")
+                        return True
+                    buffer = bytearray()
+                    async for chunk in resp.content.iter_chunked(65536):
+                        buffer.extend(chunk)
+                        if len(buffer) > MAX_AVATAR_BYTES:
+                            print("That image is over 8 MB.")
+                            return True
+                    data = bytes(buffer)
+            await bot.user.edit(avatar=data)
+            print("Avatar updated.")
+        except discord.HTTPException as e:
+            print(f"Discord rejected that (avatars can only be changed a couple of times per hour): {e}")
+        except Exception as e:
+            print(f"Couldn't change the avatar: {e}")
+        return True
+
+    # ---- temperature ----
+    arg = cmd_args(text, "temperature")
+    if arg is not None:
+        if not arg:
+            print(f"Temperature is {ai_temperature}. Usage: !temperature <0 to 2>")
+            return True
+        try:
+            value = float(arg)
+        except ValueError:
+            print("Give me a number between 0 and 2, like 0.7")
+            return True
+        if not 0 <= value <= 2:
+            print("Temperature has to be between 0 and 2.")
+            return True
+        ai_temperature = value
+        print(f"Temperature set to {ai_temperature}.")
+        return True
+
+    # ---- maxtokens ----
+    arg = cmd_args(text, "maxtokens")
+    if arg is not None:
+        if not arg:
+            print(f"Max tokens is {ai_max_tokens or 'no limit'}. Usage: !maxtokens <1 to 8192>  or  !maxtokens off")
+            return True
+        if arg.lower() in ("off", "none", "0"):
+            ai_max_tokens = None
+            print("Max tokens limit removed.")
+            return True
+        if not arg.isdigit() or not 1 <= int(arg) <= 8192:
+            print("Give me a whole number from 1 to 8192, or 'off'.")
+            return True
+        ai_max_tokens = int(arg)
+        print(f"Max tokens set to {ai_max_tokens}.")
+        return True
+
+    # ---- servers ----
+    if text == "/servers":
+        if not bot.guilds:
+            print("I'm not in any servers.")
+            return True
+        for g in bot.guilds:
+            print(f"  - {g.name} (ID: {g.id}) | {g.member_count or '?'} members | owner ID: {g.owner_id}")
+        print(f"Total: {len(bot.guilds)} server(s)")
+        return True
+
+    # ---- members ----
+    if text == "/members":
+        guild = getattr(current_channel, "guild", None)
+        if guild is None:
+            print("This only works in a server channel.")
+            return True
+        total, online = guild.member_count, None
+        try:
+            full = await bot.fetch_guild(guild.id, with_counts=True)
+            total = full.approximate_member_count or total
+            online = full.approximate_presence_count
+        except Exception:
+            pass
+        print(f"{guild.name}: {total} members" + (f", about {online} online" if online is not None else ""))
+        print("(I can't list names without the privileged Members intent. Use !whois <id> to look someone up.)")
+        return True
+
+    # ---- whois ----
+    arg = cmd_args(text, "whois")
+    if arg is not None:
+        user_id = parse_user_id(arg.split()[0]) if arg else None
+        if user_id is None:
+            print("Usage: !whois <@user|id>")
+            return True
+        try:
+            user = await bot.fetch_user(user_id)
+        except discord.NotFound:
+            print(f"No Discord user with ID {user_id}.")
+            return True
+        print(f"User: {user} (ID: {user.id}){' [BOT]' if user.bot else ''}")
+        print(f"Display name: {user.global_name or user.name}")
+        print(f"Account created: {fmt_date(user.created_at)}")
+        guild = getattr(current_channel, "guild", None)
+        if guild:
+            try:
+                member = await guild.fetch_member(user_id)
+                print(f"In {guild.name}: yes" + (f", nickname: {member.nick}" if member.nick else ""))
+                print(f"Joined server: {fmt_date(member.joined_at)}")
+                roles = [r.name for r in reversed(member.roles) if r.name != "@everyone"]
+                print(f"Roles ({len(roles)}): {', '.join(roles[:15]) or 'none'}" + (" ..." if len(roles) > 15 else ""))
+                if member.timed_out_until:
+                    print(f"Timed out until: {fmt_date(member.timed_out_until)}")
+                if guild.owner_id == user_id:
+                    print("This user owns the server.")
+            except discord.NotFound:
+                print(f"In {guild.name}: no")
+            except discord.HTTPException as e:
+                print(f"Couldn't check the server: {e}")
+        print(f"Avatar: {user.display_avatar.url}")
+        return True
+
+    # ---- channelinfo ----
+    arg = cmd_args(text, "channelinfo")
+    if arg is not None:
+        target = current_channel
+        if arg:
+            m = re.fullmatch(r"<#(\d+)>|(\d{15,25})", arg.split()[0])
+            if not m:
+                print("Usage: !channelinfo [#channel|id]")
+                return True
+            target = bot.get_channel(int(m.group(1) or m.group(2)))
+            if target is None:
+                print("I can't see a channel with that ID.")
+                return True
+        print(f"Channel: #{getattr(target, 'name', 'unknown')} (ID: {target.id})")
+        print(f"Type: {type(target).__name__}")
+        guild = getattr(target, "guild", None)
+        if guild:
+            print(f"Server: {guild.name}")
+        if getattr(target, "category", None):
+            print(f"Category: {target.category.name}")
+        if getattr(target, "topic", None):
+            print(f"Topic: {target.topic[:300]}")
+        print(f"Created: {fmt_date(target.created_at)}")
+        if hasattr(target, "slowmode_delay"):
+            print(f"Slowmode: {target.slowmode_delay}s  |  NSFW: {'yes' if target.is_nsfw() else 'no'}")
+        return True
+
+    # ---- serverinfo ----
+    arg = cmd_args(text, "serverinfo")
+    if arg is not None:
+        guild = getattr(current_channel, "guild", None)
+        if arg:
+            guild = bot.get_guild(int(arg)) if arg.isdigit() else None
+            if guild is None:
+                print("I'm not in a server with that ID. Use !servers to see them.")
+                return True
+        if guild is None:
+            print("Use this in a server channel, or give a server ID: !serverinfo <id>")
+            return True
+        texts = sum(1 for c in guild.channels if isinstance(c, discord.TextChannel))
+        voices = sum(1 for c in guild.channels if isinstance(c, discord.VoiceChannel))
+        print(f"Server: {guild.name} (ID: {guild.id})")
+        print(f"Owner ID: {guild.owner_id}")
+        print(f"Created: {fmt_date(guild.created_at)}")
+        print(f"Members: {guild.member_count}")
+        print(f"Channels: {texts} text, {voices} voice  |  Roles: {len(guild.roles)}")
+        print(f"Boost level: {guild.premium_tier} ({guild.premium_subscription_count or 0} boosts)")
+        print(f"Verification level: {guild.verification_level.name}")
+        return True
+
+    # ---- memory ----
+    arg = cmd_args(text, "memory")
+    if arg is not None:
+        if arg.lower() == "all":
+            if not chat_memory:
+                print("No chat memory saved yet.")
+                return True
+            for key, msgs in chat_memory.items():
+                ch = bot.get_channel(int(key)) if key.isdigit() else None
+                label = f"#{ch.name}" if ch is not None and hasattr(ch, "name") else f"channel {key}"
+                print(f"  - {label}: {len(msgs)} message(s)")
+            print(f"Total: {len(chat_memory)} conversation(s)")
+            return True
+        msgs = chat_memory.get(str(current_channel.id), [])
+        if not msgs:
+            print(f"No memory for #{getattr(current_channel, 'name', 'this channel')} yet. (!memory all shows every channel)")
+            return True
+        print(f"Memory for #{getattr(current_channel, 'name', 'this channel')}: {len(msgs)} message(s), showing the last {min(10, len(msgs))}")
+        for m in msgs[-10:]:
+            content = str(m.get("content", "")).replace("\n", " ")
+            print(f"  [{m.get('role', '?')}] {content[:160]}{'...' if len(content) > 160 else ''}")
+        return True
+
+    # ---- export ----
+    arg = cmd_args(text, "export")
+    if arg is not None:
+        options = {"memory": [MEMORY_FILE], "personas": [PERSONAS_FILE], "questions": [TRIVIA_CUSTOM_FILE],
+                   "state": [BOT_STATE_FILE], "all": [MEMORY_FILE, PERSONAS_FILE, TRIVIA_CUSTOM_FILE, BOT_STATE_FILE]}
+        choice = (arg or "all").lower()
+        if choice not in options:
+            print("Usage: !export [memory|personas|questions|state|all]  (sent to your DMs)")
+            return True
+        if not OWNER_ID:
+            print("OWNER_ID isn't set, so I don't know where to DM the export.")
+            return True
+        files, skipped = [], []
+        for name in options[choice]:
+            if not os.path.isfile(name):
+                skipped.append(f"{name} (doesn't exist yet)")
+            elif os.path.getsize(name) > BACKUP_MAX_BYTES:
+                skipped.append(f"{name} (over 8 MB)")
+            else:
+                files.append(discord.File(name))
+        if not files:
+            print("Nothing to export. " + ("Skipped: " + ", ".join(skipped) if skipped else ""))
+            return True
+        try:
+            owner = await bot.fetch_user(OWNER_ID)
+            await owner.send(content="Data export. Don't share these files, chat memory can contain private messages.", files=files)
+            print(f"Sent {len(files)} file(s) to your DMs." + (f" Skipped: {', '.join(skipped)}" if skipped else ""))
+        except discord.Forbidden:
+            print("I couldn't DM you. Turn on DMs from server members, or share a server with me.")
+        except discord.HTTPException as e:
+            print(f"Export failed: {e}")
+        return True
+
+    # ---- reply ----
+    arg = cmd_args(text, "reply")
+    if arg is not None:
+        parts = arg.split(None, 1)
+        if len(parts) < 2:
+            print("Usage: !reply <message id or link> <text>")
+            return True
+        channel, msg_id = parse_message_ref(parts[0], current_channel)
+        if channel is None:
+            print("I need a message ID (or a message link) first.")
+            return True
+        try:
+            target = await channel.fetch_message(msg_id)
+            await target.reply(parts[1][:2000])
+            print("Replied.")
+        except discord.NotFound:
+            print("I can't find that message in that channel.")
+        except discord.Forbidden:
+            print("I don't have permission to reply there.")
+        except discord.HTTPException as e:
+            print(f"Reply failed: {e}")
+        return True
+
+    # ---- react ----
+    arg = cmd_args(text, "react")
+    if arg is not None:
+        parts = arg.split()
+        if len(parts) < 2:
+            print("Usage: !react <message id or link> <emoji>")
+            return True
+        channel, msg_id = parse_message_ref(parts[0], current_channel)
+        if channel is None:
+            print("I need a message ID (or a message link) first.")
+            return True
+        try:
+            target = await channel.fetch_message(msg_id)
+            await target.add_reaction(discord.PartialEmoji.from_str(parts[1]))
+            print(f"Reacted with {parts[1]}.")
+        except discord.NotFound:
+            print("I can't find that message, or that emoji doesn't exist.")
+        except discord.Forbidden:
+            print("I don't have permission to add reactions there.")
+        except discord.HTTPException as e:
+            print(f"React failed (is that a real emoji, and can I use it?): {e}")
+        return True
+
+    # ---- embed ----
+    arg = cmd_args(text, "embed")
+    if arg is not None:
+        parts = [p.strip() for p in arg.split("|")]
+        if not arg or not parts[0]:
+            print("Usage: !embed <title> | <description> | [color like #7289da]")
+            return True
+        title = parts[0]
+        description = parts[1] if len(parts) > 1 else None
+        color = discord.Color.blurple()
+        if len(parts) > 2 and parts[2]:
+            m = re.fullmatch(r"#?([0-9a-fA-F]{6})", parts[2])
+            if not m:
+                print("The color has to be a hex code like #7289da.")
+                return True
+            color = discord.Color(int(m.group(1), 16))
+        if len(title) > 256 or (description and len(description) > 4000):
+            print("Title max is 256 characters and description max is 4000.")
+            return True
+        try:
+            await current_channel.send(embed=discord.Embed(title=title, description=description, color=color), allowed_mentions=NO_MENTIONS)
+            print("Embed sent.")
+        except discord.Forbidden:
+            print("I need the Embed Links and Send Messages permissions here.")
+        except discord.HTTPException as e:
+            print(f"Embed failed: {e}")
+        return True
+
+    # ---- spam ----
+    arg = cmd_args(text, "spam")
+    if arg is not None:
+        parts = arg.split(None, 1)
+        if len(parts) < 2 or not parts[0].isdigit():
+            print("Usage: !spam <count 1-10> <message>")
+            return True
+        count = int(parts[0])
+        if not 1 <= count <= 10:
+            print("The count has to be from 1 to 10.")
+            return True
+        sent = 0
+        try:
+            for _ in range(count):
+                await current_channel.send(parts[1][:2000], allowed_mentions=NO_MENTIONS)
+                sent += 1
+                await asyncio.sleep(1.2)
+        except discord.HTTPException as e:
+            print(f"Stopped after {sent}: {e}")
+            return True
+        print(f"Sent {sent} message(s).")
+        return True
+
+    # ---- poll ----
+    arg = cmd_args(text, "poll")
+    if arg is not None:
+        parts = [p.strip() for p in arg.split("|") if p.strip()]
+        if not parts:
+            print("Usage: !poll <question> | <option 1> | <option 2> ...  (no options = yes/no poll, up to 10 options)")
+            return True
+        question, options = parts[0], parts[1:]
+        if len(options) == 1 or len(options) > 10:
+            print("Give me 2 to 10 options, or no options for a yes/no poll.")
+            return True
+        if len(question) > 250 or any(len(o) > 200 for o in options):
+            print("Keep the question under 250 characters and each option under 200.")
+            return True
+        if options:
+            body = "\n".join(f"{NUMBER_EMOJIS[i]} {o}" for i, o in enumerate(options))
+            reactions = NUMBER_EMOJIS[:len(options)]
+        else:
+            body, reactions = "👍 Yes\n👎 No", ["👍", "👎"]
+        try:
+            poll_msg = await current_channel.send(embed=discord.Embed(title=f"📊 {question}", description=body, color=discord.Color.blurple()), allowed_mentions=NO_MENTIONS)
+            for emoji in reactions:
+                await poll_msg.add_reaction(emoji)
+            print("Poll posted.")
+        except discord.Forbidden:
+            print("I need Embed Links, Send Messages and Add Reactions here.")
+        except discord.HTTPException as e:
+            print(f"Poll failed: {e}")
+        return True
+
+    # ---- timer ----
+    arg = cmd_args(text, "timer")
+    if arg is not None:
+        parts = arg.split(None, 1)
+        duration = parse_duration(parts[0]) if parts else None
+        if duration is None:
+            print("Usage: !timer <duration like 30s, 10m, 2h> [message]  (max 24h)")
+            return True
+        if duration > MAX_TIMER:
+            print("The longest timer is 24 hours.")
+            return True
+        if len(active_timers) >= 10:
+            print("You already have 10 timers running.")
+            return True
+        note = parts[1][:300] if len(parts) > 1 else ""
+        task = asyncio.create_task(run_timer(current_channel, duration.total_seconds(), note))
+        active_timers.add(task)
+        print(f"Timer set for {format_elapsed(duration)}. (Timers are lost if the bot restarts.)")
+        return True
+
+    # ---- reload ----
+    if text == "/reload":
+        print("Reloaded data from disk: " + reload_data_files())
+        return True
+
+    return False
+
+
 MAX_TIMEOUT = datetime.timedelta(days=28)
 
 
@@ -1857,7 +2380,7 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         text = "/" + text
 
     if text == "/help":
-        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq, /ban, /unban, /kick, /timeout, /untimeout, /backup, /warnchannel, /addflag, /removeflag, /flagged")
+        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq, /ban, /unban, /kick, /timeout, /untimeout, /backup, /warnchannel, /addflag, /removeflag, /flagged, /pause, /resume, /nick, /avatar, /temperature, /maxtokens, /servers, /members, /whois, /channelinfo, /serverinfo, /memory, /export, /reply, /react, /embed, /spam, /poll, /timer, /reload")
         return current_channel
 
     if text == "/list":
@@ -2199,6 +2722,7 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         print(f"AI model: {ai_model}  |  Temp: {ai_temperature}  |  Max tokens: {ai_max_tokens}")
         print(f"Persona: {persona_preview}")
         print(f"Voice connections: {len(bot.voice_clients)}")
+        print(f"Paused: {'yes (use !resume)' if bot_paused else 'no'}")
         return current_channel
 
     if text == "/purge" or text.startswith("/purge "):
@@ -2268,6 +2792,9 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         print("Shutting down gracefully... Bot will go offline.")
         # Schedule the shutdown on the event loop so this function can return first
         asyncio.create_task(bot.close())
+        return current_channel
+
+    if await execute_extra_command(text, current_channel):
         return current_channel
 
     print(f"Unknown command: {text}")
@@ -2371,7 +2898,7 @@ async def on_message(message):
         if handled:
             return
 
-    if bot.user in message.mentions or is_dm:
+    if (bot.user in message.mentions or is_dm) and not bot_paused:
         await ai_reply(message, is_dm)
 
 
