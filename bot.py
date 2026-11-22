@@ -1012,6 +1012,36 @@ FLAGGED_PHRASES = [
 ]
 
 
+MAX_CUSTOM_FLAGS = 200
+custom_flags = []  # [{"phrase": str, "reason": str, "regex": compiled}]
+
+
+def compile_flag(phrase: str):
+    """Case-insensitive, flexible about spaces, matches whole words only."""
+    normalized = re.sub(r"\s+", " ", phrase.strip().lower())
+    body = r"\s+".join(re.escape(part) for part in normalized.split(" "))
+    start = r"\b" if re.match(r"\w", normalized[0]) else ""
+    end = r"\b" if re.match(r"\w", normalized[-1]) else ""
+    return re.compile(start + body + end)
+
+
+def load_custom_flags():
+    custom_flags.clear()
+    for item in bot_state.get("custom_flags", []):
+        try:
+            custom_flags.append({"phrase": item["phrase"], "reason": item["reason"], "regex": compile_flag(item["phrase"])})
+        except Exception:
+            pass
+
+
+def save_custom_flags():
+    bot_state["custom_flags"] = [{"phrase": f["phrase"], "reason": f["reason"]} for f in custom_flags]
+    save_json_file(BOT_STATE_FILE, bot_state)
+
+
+load_custom_flags()
+
+
 def set_warn_channel(channel_id):
     global warn_channel_id
     warn_channel_id = channel_id
@@ -1026,6 +1056,9 @@ def find_flagged_reason(text: str):
     for pattern, reason in FLAGGED_PHRASES:
         if pattern.search(cleaned):
             return reason
+    for item in custom_flags:
+        if item["regex"].search(cleaned):
+            return item["reason"]
     return None
 
 
@@ -1033,6 +1066,8 @@ async def check_and_warn(message: discord.Message):
     """If the message has a flagged phrase, ping the author in the warnings channel."""
     if not warn_channel_id or message.guild is None or not message.content:
         return
+    if OWNER_ID and message.author.id == OWNER_ID and message.content.startswith("!"):
+        return  # the owner running a command (e.g. !addflag <phrase>) shouldn't trigger a warning
     reason = find_flagged_reason(message.content)
     if not reason:
         return
@@ -1081,7 +1116,7 @@ ADMIN_DISCORD_COMMANDS = {
     "temperature", "maxtokens", "info", "ping", "uptime", "servers",
     "members", "whois", "channelinfo", "serverinfo", "memory", "export",
     "purge", "say", "reply", "react", "embed", "spam", "poll", "timer",
-    "reload", "backup", "warnchannel", "ban", "unban", "kick", "timeout", "untimeout",
+    "reload", "backup", "warnchannel", "addflag", "removeflag", "flagged", "ban", "unban", "kick", "timeout", "untimeout",
 }
 
 
@@ -1136,6 +1171,7 @@ async def cmd_help_discord(message: discord.Message):
         lines.append("  `!ban <user> [reason]`  •  `!unban <user id> [reason]`  •  `!kick <user> [reason]`")
         lines.append("  `!timeout <user> <10m|2h|1d> [reason]`  •  `!untimeout <user>`")
         lines.append("  `!warnchannel <here|#channel|id|clear>`  (where warnings get posted)")
+        lines.append("  `!addflag <phrase> | [reason]`  •  `!removeflag <phrase>`  •  `!flagged`")
         lines.append("  `!backup`  (save your data to the storage channel now)")
         lines.append("  `!say <#channel> <msg>`  •  `!dm <uid> <msg>`")
         lines.append("  `!model <name>`  •  `!vc <name>`  •  `!play <query>`  •  `!stop`  •  `!leave`")
@@ -1821,7 +1857,7 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         text = "/" + text
 
     if text == "/help":
-        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq, /ban, /unban, /kick, /timeout, /untimeout, /backup, /warnchannel")
+        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq, /ban, /unban, /kick, /timeout, /untimeout, /backup, /warnchannel, /addflag, /removeflag, /flagged")
         return current_channel
 
     if text == "/list":
@@ -2051,6 +2087,60 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         elif arg.isdigit():
             set_snipe_alert_channel(int(arg))
             print(f"Snipe alert set to channel {arg}")
+        return current_channel
+
+    if text == "/addflag" or text.startswith("/addflag "):
+        arg = text[8:].strip()
+        phrase, _, reason = arg.partition("|")
+        phrase = re.sub(r"\s+", " ", phrase.strip())
+        reason = reason.strip()
+        if not phrase:
+            print("Usage: !addflag <phrase> | [reason]")
+            print('Example: !addflag shut up | Told someone to shut up')
+            return current_channel
+        if len(phrase) < 2 or len(phrase) > 100:
+            print("The phrase has to be between 2 and 100 characters.")
+            return current_channel
+        if len(reason) > 200:
+            print("The reason can be at most 200 characters.")
+            return current_channel
+        if len(custom_flags) >= MAX_CUSTOM_FLAGS:
+            print(f"You already have {MAX_CUSTOM_FLAGS} flagged phrases, remove one first with !removeflag.")
+            return current_channel
+        if any(f["phrase"].lower() == phrase.lower() for f in custom_flags):
+            print(f'"{phrase}" is already flagged.')
+            return current_channel
+        reason = reason or f'Said a flagged phrase: "{phrase}"'
+        custom_flags.append({"phrase": phrase, "reason": reason, "regex": compile_flag(phrase)})
+        save_custom_flags()
+        print(f'Now flagging "{phrase}". Reason shown: {reason}')
+        if not warn_channel_id:
+            print("Note: no warnings channel is set yet, use !warnchannel here to turn warnings on.")
+        return current_channel
+
+    if text == "/removeflag" or text.startswith("/removeflag "):
+        phrase = re.sub(r"\s+", " ", text[11:].strip()).lower()
+        if not phrase:
+            print("Usage: !removeflag <phrase>  (see them with !flagged)")
+            return current_channel
+        before = len(custom_flags)
+        custom_flags[:] = [f for f in custom_flags if f["phrase"].lower() != phrase]
+        if len(custom_flags) == before:
+            print(f'"{phrase}" isn\'t one of your flagged phrases. The built-in "fuck you" flag can\'t be removed.')
+        else:
+            save_custom_flags()
+            print(f'Stopped flagging "{phrase}".')
+        return current_channel
+
+    if text == "/flagged":
+        print('Built-in: "fuck you" (and "fuck u", stretched letters)')
+        if custom_flags:
+            print(f"Custom ({len(custom_flags)}):")
+            for f in custom_flags:
+                print(f'  - "{f["phrase"]}"  ->  {f["reason"]}')
+        else:
+            print("Custom: none yet. Add one with !addflag <phrase> | [reason]")
+        print(f"Warnings channel: {('<#' + str(warn_channel_id) + '>') if warn_channel_id else 'off (use !warnchannel here)'}")
         return current_channel
 
     if text == "/warnchannel" or text.startswith("/warnchannel "):
