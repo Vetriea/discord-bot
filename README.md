@@ -60,7 +60,7 @@ yt-dlp
 In bot.py, check the file that is on my repository itself, and paste it all there.
 ***MAKE SURE TO COMMIT CHANGES!***
 
-*(I know this step is the boring part, a lot of copying and pasting, but don't give up now! Once this is done, the hardest part is over and the rest is just filling in boxes. You're almost there, keep going! 💪)*
+*(I know this step is the boring part, a lot of copying and pasting, but don't give up now! Once this is done, the hardest part is over and the rest is just filling in boxes. You're almost there, keep going!)*
 
 ## 7. Render
 Go to [Render](https://render.com)
