@@ -9,6 +9,8 @@ import datetime
 import time
 import re
 import random
+import signal
+import urllib.request
 from collections import defaultdict, deque
 import discord
 from aiohttp import web
@@ -165,6 +167,143 @@ def save_json_file(path, data):
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"Warning: Could not save {path}: {e}")
+        return
+    name = os.path.basename(path)
+    if STORAGE_CHANNEL_ID and name in BACKUP_FILES:
+        dirty_backups.add(name)
+
+
+# ---------------------------------------------------------------------------
+# Persistent storage: backs up the JSON data files to a private Discord channel
+# so they survive Render redeploys. Turned on by setting STORAGE_CHANNEL_ID.
+# ---------------------------------------------------------------------------
+STORAGE_CHANNEL_ID = int(os.getenv("STORAGE_CHANNEL_ID", "0").strip() or "0")
+BACKUP_FILES = {MEMORY_FILE, PERSONAS_FILE, BOT_STATE_FILE, TRIVIA_CUSTOM_FILE}
+BACKUP_MAX_BYTES = 8 * 1024 * 1024
+DISCORD_API = "https://discord.com/api/v10"
+backup_message_ids = {}
+dirty_backups = set()
+last_backup_error = ""
+
+
+def _discord_http_get(url, raw=False):
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bot {DISCORD_TOKEN}",
+        "User-Agent": "DiscordBot (https://github.com/Vetriea/discord-bot, 1.0)",
+    })
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = resp.read()
+    return data if raw else json.loads(data.decode("utf-8"))
+
+
+def restore_from_discord():
+    """Runs once at startup, before the data files are loaded.
+    Downloads each missing data file from the storage channel."""
+    if not STORAGE_CHANNEL_ID:
+        return
+    try:
+        me = _discord_http_get(f"{DISCORD_API}/users/@me")
+        msgs = _discord_http_get(f"{DISCORD_API}/channels/{STORAGE_CHANNEL_ID}/messages?limit=100")
+    except Exception as e:
+        print(f"Storage: could not read the backup channel ({e}). Check STORAGE_CHANNEL_ID and that the bot can see that channel.")
+        return
+    seen = set()
+    restored = []
+    for m in msgs:  # newest first
+        if m.get("author", {}).get("id") != me.get("id"):
+            continue
+        for att in m.get("attachments", []):
+            name = att.get("filename")
+            if name not in BACKUP_FILES or name in seen:
+                continue
+            seen.add(name)
+            backup_message_ids[name] = int(m["id"])
+            if os.path.isfile(name):
+                continue  # a local copy exists, don't overwrite it
+            try:
+                data = _discord_http_get(att["url"], raw=True)
+                json.loads(data.decode("utf-8"))  # make sure it's valid before using it
+                with open(name, "wb") as f:
+                    f.write(data)
+                restored.append(name)
+            except Exception as e:
+                print(f"Storage: could not restore {name}: {e}")
+    if restored:
+        print(f"Storage: restored {', '.join(sorted(restored))} from Discord.")
+    else:
+        print("Storage: connected, nothing to restore.")
+
+
+restore_from_discord()
+
+
+def _backup_file_obj(name):
+    with open(name, "rb") as f:
+        data = f.read()
+    if len(data) > BACKUP_MAX_BYTES:
+        raise ValueError(f"{name} is {len(data) // 1024} KB, too big to back up (limit {BACKUP_MAX_BYTES // 1024} KB)")
+    return discord.File(io.BytesIO(data), filename=name)
+
+
+async def backup_dirty_files():
+    """Uploads every changed data file to the storage channel. Returns how many were saved."""
+    global last_backup_error
+    if not STORAGE_CHANNEL_ID or not dirty_backups:
+        return 0
+    channel = bot.get_channel(STORAGE_CHANNEL_ID)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(STORAGE_CHANNEL_ID)
+        except Exception as e:
+            last_backup_error = f"cannot open storage channel: {e}"
+            print(f"Storage: {last_backup_error}")
+            return 0
+    saved = 0
+    for name in list(dirty_backups):
+        dirty_backups.discard(name)
+        try:
+            if not os.path.isfile(name):
+                continue
+            msg_id = backup_message_ids.get(name)
+            if msg_id:
+                try:
+                    msg = await channel.fetch_message(msg_id)
+                    await msg.edit(attachments=[_backup_file_obj(name)])
+                    saved += 1
+                    continue
+                except discord.NotFound:
+                    pass
+            sent = await channel.send(content=f"Backup: {name}", file=_backup_file_obj(name))
+            backup_message_ids[name] = sent.id
+            saved += 1
+        except Exception as e:
+            last_backup_error = f"{name}: {e}"
+            print(f"Storage: backup of {name} failed: {e}")
+            if not isinstance(e, ValueError):
+                dirty_backups.add(name)  # try again next round
+    if saved:
+        last_backup_error = ""
+    return saved
+
+
+async def backup_loop():
+    await bot.wait_until_ready()
+    for name in BACKUP_FILES:  # first run: back up anything that has no copy yet
+        if os.path.isfile(name) and name not in backup_message_ids:
+            dirty_backups.add(name)
+    while True:
+        await asyncio.sleep(10)
+        if dirty_backups:
+            await backup_dirty_files()
+
+
+async def flush_and_close():
+    """On a shutdown signal (Render redeploy) save everything, then stop."""
+    try:
+        await asyncio.wait_for(backup_dirty_files(), timeout=15)
+    except Exception as e:
+        print(f"Storage: final backup failed: {e}")
+    await bot.close()
 
 
 def get_topic_emoji(topic_name: str) -> str:
@@ -884,7 +1023,7 @@ ADMIN_DISCORD_COMMANDS = {
     "temperature", "maxtokens", "info", "ping", "uptime", "servers",
     "members", "whois", "channelinfo", "serverinfo", "memory", "export",
     "purge", "say", "reply", "react", "embed", "spam", "poll", "timer",
-    "reload", "ban", "unban", "kick", "timeout", "untimeout",
+    "reload", "backup", "ban", "unban", "kick", "timeout", "untimeout",
 }
 
 
@@ -938,6 +1077,7 @@ async def cmd_help_discord(message: discord.Message):
         lines.append("  `!list`  •  `!diag`  •  `!info`  •  `!ping`  •  `!uptime`")
         lines.append("  `!ban <user> [reason]`  •  `!unban <user id> [reason]`  •  `!kick <user> [reason]`")
         lines.append("  `!timeout <user> <10m|2h|1d> [reason]`  •  `!untimeout <user>`")
+        lines.append("  `!backup`  (save your data to the storage channel now)")
         lines.append("  `!say <#channel> <msg>`  •  `!dm <uid> <msg>`")
         lines.append("  `!model <name>`  •  `!vc <name>`  •  `!play <query>`  •  `!stop`  •  `!leave`")
         lines.append("  *(also: `!bot /<command>` still works as a fallback)*")
@@ -1622,7 +1762,7 @@ async def execute_admin_command(raw_cmd: str, current_channel):
         text = "/" + text
 
     if text == "/help":
-        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq, /ban, /unban, /kick, /timeout, /untimeout")
+        print("Commands: /list, /ch, /say, /photo, /vc, /tts, /pitch, /play, /stop, /leave, /dm, /status, /activity, /persona, /resetpersona, /savepersona, /loadpersona, /personas, /model, /forget, /forgetall, /clear, /trivia, /triviastop, /snipealert, /diag, /ping, /uptime, /info, /purge, /snipestats, /snipewipe, /customq, /ban, /unban, /kick, /timeout, /untimeout, /backup")
         return current_channel
 
     if text == "/list":
@@ -1859,6 +1999,19 @@ async def execute_admin_command(raw_cmd: str, current_channel):
             await execute_mod_command(_mod, text[len(_mod) + 1:].strip(), current_channel)
             return current_channel
 
+    if text == "/backup":
+        if not STORAGE_CHANNEL_ID:
+            print("Storage is off. Set STORAGE_CHANNEL_ID (see README) to keep your data across redeploys.")
+            return current_channel
+        for name in BACKUP_FILES:
+            if os.path.isfile(name):
+                dirty_backups.add(name)
+        saved = await backup_dirty_files()
+        print(f"Backed up {saved} file(s) to channel {STORAGE_CHANNEL_ID}.")
+        if last_backup_error:
+            print(f"Last error: {last_backup_error}")
+        return current_channel
+
     if text == "/ping":
         print(f"Pong! Latency: {round(bot.latency * 1000)}ms")
         return current_channel
@@ -2018,6 +2171,15 @@ async def on_ready():
     run_startup_diagnostics()
     print(f"Logged in as {bot.user}")
     await restore_bot_state()
+    if STORAGE_CHANNEL_ID:
+        bot.loop.create_task(backup_loop())
+        try:
+            bot.loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.ensure_future(flush_and_close()))
+        except (NotImplementedError, RuntimeError, ValueError):
+            pass
+        print(f"Storage: backing up to channel {STORAGE_CHANNEL_ID}")
+    else:
+        print("Storage: STORAGE_CHANNEL_ID not set, data resets on redeploy")
     bot.loop.create_task(start_keepalive_server())
     if IS_INTERACTIVE:
         bot.loop.create_task(manual_console_sender())
